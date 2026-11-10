@@ -1,0 +1,39 @@
+{
+  "name": "@geongyu09/paseo-agent-dashboard",
+  "version": "1.0.0",
+  "files": [
+    "paseo-plugin.json",
+    "OVERVIEW.md",
+    "OVERVIEW.*.md",
+    "index.client.ts",
+    "index.client.tsx",
+    "index.server.ts",
+    "index.server.tsx",
+    "client/",
+    "server/",
+    "shared/",
+    "assets/"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --no-warnings --test shared/board.test.mjs"
+  },
+  "devDependencies": {
+    "@getpaseo/plugin": "0.15.3",
+    "@tanstack/react-query": "^5.90.11",
+    "@types/node": "^22.20.5",
+    "@types/react": "~19.2.0",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "typescript": "^5.9.3",
+    "zod": "^4.4.3"
+  },
+  "license": "MIT",
+  "author": "박건규 (https://github.com/geongyu09)",
+  "description": "Shows the current project's Paseo agents as a live tree of cards with status, model, context use and the instructions each parent agent sent.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/geongyu09/paseo-agent-dashboard.git"
+  },
+  "homepage": "https://github.com/geongyu09/paseo-agent-dashboard#readme"
+}

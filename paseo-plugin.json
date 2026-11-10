@@ -1,0 +1,19 @@
+{
+  "id": "paseo-agent-dashboard",
+  "name": "Agent board",
+  "description": "Shows the current project's Paseo agents as a live tree of cards with status, model, context use and the instructions each parent agent sent.",
+  "media": ["assets/board-dark.webp", "assets/instructions.webp", "assets/board-light.webp"],
+  "requirements": {
+    "paseo": ">=0.15.3"
+  },
+  "translations": {
+    "ko": {
+      "name": "에이전트 보드",
+      "description": "현재 프로젝트의 Paseo 에이전트를 상태, 모델, 컨텍스트 사용량과 부모 에이전트가 보낸 지시가 담긴 카드 트리로 보여 줍니다."
+    },
+    "zh-CN": {
+      "name": "智能体看板",
+      "description": "以卡片树实时显示当前项目的 Paseo 智能体，包括状态、模型、上下文用量和父智能体发送的指令。"
+    }
+  }
+}
