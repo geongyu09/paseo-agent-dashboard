@@ -48,6 +48,18 @@ test("pushItem merges streamed text and later states of a tool call", () => {
   assert.equal(items[1].status, "completed");
 });
 
+test("pushItem keeps a subagent call's label when Claude streams the call unlabelled", () => {
+  const plain = { type: "tool_call", callId: "s1", name: "Agent", status: "running", error: null, detail: { type: "unknown", input: null, output: null } };
+  const card = { ...plain, name: "Task", detail: { type: "sub_agent", subAgentType: "Explore", description: "Find callers" } };
+  let items = pushItem([], plain);
+  items = pushItem(items, card);
+  items = pushItem(items, plain);
+  items = pushItem(items, { ...plain, status: "completed" });
+  assert.equal(items.length, 1);
+  assert.equal(items[0].status, "completed");
+  assert.deepEqual(items[0].detail, card.detail);
+});
+
 test("describeActivity reads the latest prompt, the latest action of its turn, and the todo step", () => {
   const activity = describeActivity([
     { type: "user_message", text: "old task" },

@@ -6,7 +6,8 @@ import type { AgentSnapshotPayload as PaseoAgent, WorkspaceDescriptorPayload as 
 import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 import { memo, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Animated, Easing, PanResponder, Platform, Pressable, ScrollView, Text, View, type GestureResponderEvent, type TextStyle } from "react-native";
-import { BOX_LABEL, BOX_PAD, CARD_W, DEFAULT_H, PAD, arrowPath, type ArrowDirection, type Box, colorIndex, describeActivity, groupBoxes, lineage, profileOf, promptOf, pushItem, subtrees, snapPoint, treeLayout, type Point, type ProfileLike } from "../shared/board";
+import { BOX_LABEL, BOX_PAD, CARD_W, DEFAULT_H, PAD, PARENT_LABEL, arrowPath, type ArrowDirection, type BoardAgent, type Box, colorIndex, describeActivity, groupBoxes, lineage, profileOf, promptOf, pushItem, subtrees, snapPoint, treeLayout, type Point, type ProfileLike } from "../shared/board";
+import { subAgentList, subAgentPrompts, type SubAgent } from "../shared/subagents";
 import { CLAUDE_SVG, OPENAI_SVG } from "../shared/icons";
 import { boardLayout } from "../shared/layout";
 import { workspaceLabels } from "../shared/labels";
@@ -217,6 +218,34 @@ interface DragHandlers {
 /** React Native Web puts the mouse event's modifier keys on responder events; native touches have none. */
 const shiftHeld = (event: GestureResponderEvent) => Boolean((event.nativeEvent as { shiftKey?: boolean }).shiftKey);
 
+/** Dragging moves the card `id`; a tap opens the agent `opens`. */
+function useCardPan(id: string, opens: string, handlers: RefObject<DragHandlers>) {
+  return useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderMove: (e, g) => handlers.current.move(id, g.dx, g.dy, shiftHeld(e)),
+        onPanResponderRelease: (e, g) =>
+          Math.abs(g.dx) + Math.abs(g.dy) < TAP_SLOP ? handlers.current.press(opens) : handlers.current.drop(id, g.dx, g.dy, shiftHeld(e)),
+        onPanResponderTerminate: () => handlers.current.cancel(),
+      }),
+    [id, opens, handlers],
+  );
+}
+
+function StatusBadge({ label, color }: { label: string; color: string }) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+      <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: color }} />
+      <Text selectable={false} style={{ color, fontSize: 11, fontWeight: "700" }}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
 const PROVIDER_SVGS: Record<string, string> = { claude: CLAUDE_SVG, codex: OPENAI_SVG };
 
 function ProviderLogo({ provider, svg, colors }: { provider: string; svg?: string; colors: Colors }) {
@@ -299,10 +328,14 @@ function ProfileChip({ profile }: { profile: Profile }) {
 /** The status is in the key, so a finished turn is summarized once more as it ends; the locale, so a new app language gets new summaries. */
 const summaryKey = (agent: PaseoAgent, locale: string) => ["agent-board", "summary", agent.id, agent.status, locale];
 
-/** The card's Haiku title once it has one, else the stored title. Reads the card's cached summary without fetching. */
-function useShownTitle(agent: PaseoAgent, summaries: boolean, locale: string): string {
-  const summary = useQuery<RpcOutput<typeof agentSummary>>({ queryKey: summaryKey(agent, locale), enabled: false });
-  return (summaries ? summary.data?.title : null) ?? agent.title ?? agent.provider;
+const isSub = (node: PaseoAgent | SubAgent): node is SubAgent => "parentAgentId" in node;
+const subTitle = (sub: SubAgent) => sub.description ?? sub.title;
+
+/** The card's Haiku title once it has one, else the stored title; a subagent's task. Reads the card's cached summary without fetching. */
+function useShownTitle(node: PaseoAgent | SubAgent, summaries: boolean, locale: string): string {
+  const summary = useQuery<RpcOutput<typeof agentSummary>>({ queryKey: isSub(node) ? ["agent-board", "none"] : summaryKey(node, locale), enabled: false });
+  if (isSub(node)) return subTitle(node) ?? node.id;
+  return (summaries ? summary.data?.title : null) ?? node.title ?? node.provider;
 }
 
 const AgentCard = memo(function AgentCard(props: {
@@ -352,21 +385,7 @@ const AgentCard = memo(function AgentCard(props: {
   const summed = props.summaries ? summary.data : undefined;
   const title = summed?.title ?? agent.title ?? t("card.untitled");
   const doing = activity.compacting ? t("card.compactingNow") : (summed?.doing ?? activity.latest);
-  const pan = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
-        onPanResponderTerminationRequest: () => false,
-        onPanResponderMove: (e, g) => handlers.current.move(agent.id, g.dx, g.dy, shiftHeld(e)),
-        onPanResponderRelease: (e, g) =>
-          Math.abs(g.dx) + Math.abs(g.dy) < TAP_SLOP
-            ? handlers.current.press(agent.id)
-            : handlers.current.drop(agent.id, g.dx, g.dy, shiftHeld(e)),
-        onPanResponderTerminate: () => handlers.current.cancel(),
-      }),
-    [agent.id, handlers],
-  );
+  const pan = useCardPan(agent.id, agent.id, handlers);
   const status = statusOf(agent, colors, activity.compacting);
   const statusLabel = t(`status.${status.key}`);
   const role = agent.labels.role;
@@ -428,12 +447,7 @@ const AgentCard = memo(function AgentCard(props: {
         >
           <Icon name="EyeOff" size={14} color={colors.foregroundMuted} />
         </Pressable>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-          <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: status.color }} />
-          <Text selectable={false} style={{ color: status.color, fontSize: 11, fontWeight: "700" }}>
-            {statusLabel}
-          </Text>
-        </View>
+        <StatusBadge label={statusLabel} color={status.color} />
       </View>
       <Text selectable={false} numberOfLines={2} style={{ color: colors.foreground, fontSize: 15, lineHeight: 20, fontWeight: "700" }}>
         {title}
@@ -458,6 +472,80 @@ const AgentCard = memo(function AgentCard(props: {
         <Field tag={t("field.step")} color={GREEN} lines={1} valueStyle={muted}>
           {activity.step}
         </Field>
+      ) : null}
+    </View>
+  );
+});
+
+/** A subagent's node: its type, its task, Paseo's model and token line, and its state. A tap opens the agent whose session runs it. */
+const SubAgentCard = memo(function SubAgentCard(props: {
+  sub: SubAgent;
+  x: number;
+  y: number;
+  dragging: boolean;
+  dimmed: boolean;
+  colors: Colors;
+  handlers: RefObject<DragHandlers>;
+}) {
+  const { sub, colors, handlers } = props;
+  const live = sub.status === "running";
+  const { t } = useTranslation(messages);
+  const pan = useCardPan(sub.id, sub.parentAgentId, handlers);
+  const status: { key: StatusKey; color: string } = live
+    ? { key: "running", color: AMBER }
+    : sub.status === "completed"
+      ? { key: "finished", color: colors.statusSuccess }
+      : sub.status === "failed"
+        ? { key: "error", color: colors.statusDanger }
+        : { key: "canceled", color: GRAY };
+  const statusLabel = t(`status.${status.key}`);
+  const kind = sub.title ? `${t("tool.subAgent")} / ${sub.title}` : t("tool.subAgent");
+  const title = subTitle(sub) ?? t("tool.subAgent");
+  return (
+    <View
+      {...pan.panHandlers}
+      accessible
+      accessibilityRole="button"
+      accessibilityLabel={`${kind}, ${title}, ${statusLabel}`}
+      accessibilityHint={t("card.subHint")}
+      onAccessibilityTap={() => handlers.current.press(sub.parentAgentId)}
+      onLayout={(event) => handlers.current.measure(sub.id, event.nativeEvent.layout.height)}
+      style={{
+        position: "absolute",
+        left: props.x,
+        top: props.y,
+        width: CARD_W,
+        padding: 12,
+        gap: 6,
+        overflow: "hidden",
+        borderRadius: 12,
+        borderWidth: live ? 2 : 1,
+        borderColor: live ? AMBER : colors.border,
+        backgroundColor: colors.surface1,
+        borderStyle: live ? "solid" : "dashed",
+        opacity: props.dragging ? 0.85 : props.dimmed ? DIM : live ? 1 : 0.6,
+        zIndex: props.dragging ? 10 : 1,
+        cursor: "pointer",
+      }}
+    >
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, height: 22 }}>
+        <Icon name="Bot" size={16} color={colors.foreground} />
+        <Text
+          selectable={false}
+          numberOfLines={1}
+          style={{ flex: 1, color: colors.foregroundMuted, fontSize: 10, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase" }}
+        >
+          {kind}
+        </Text>
+        <StatusBadge label={statusLabel} color={status.color} />
+      </View>
+      <Text selectable={false} numberOfLines={2} style={{ color: colors.foreground, fontSize: 14, lineHeight: 19, fontWeight: "700" }}>
+        {title}
+      </Text>
+      {sub.subtitle ? (
+        <Text selectable={false} numberOfLines={1} style={{ color: colors.foregroundMuted, fontSize: 12 }}>
+          {sub.subtitle}
+        </Text>
       ) : null}
     </View>
   );
@@ -645,8 +733,8 @@ function InstructionBubble(props: {
   anchor: Point;
   /** The visible area of that view; the bubble takes the side of the button with more room and fits inside. */
   space: { width: number; height: number };
-  from: PaseoAgent;
-  to: PaseoAgent;
+  from: PaseoAgent | SubAgent;
+  to: PaseoAgent | SubAgent;
   summaries: boolean;
   colors: Colors;
   onClose(): void;
@@ -656,9 +744,12 @@ function InstructionBubble(props: {
   const fromTitle = useShownTitle(from, props.summaries, locale);
   const toTitle = useShownTitle(to, props.summaries, locale);
   const paseo = usePaseo();
+  const readSubPrompts = useRpc(subAgentPrompts);
   const prompts = useQuery({
     queryKey: ["agent-board", "instructions", from.id, to.id],
     queryFn: async () => {
+      // Everything a subagent was given came from what started it.
+      if (isSub(to)) return (await readSubPrompts({ agentId: to.parentAgentId, subAgentId: to.id })).prompts;
       // The whole timeline, as `paseo logs` reads it: a bounded tail counts streamed answer chunks as rows and soon loses the first prompt.
       const page = await paseo.agents.ref(to.id).timeline.refetch({ direction: "tail", limit: 0 });
       return page.entries.flatMap((entry) => {
@@ -861,10 +952,43 @@ export function AgentBoard({ theme, layout, workspaceId, navigation, tab }: Plug
     const hidden = subtrees(inProject, view.hidden.filter((id) => inProject.some((a) => a.id === id)));
     return { visible: inProject.filter((a) => !hidden.has(a.id)), hiddenCount: hidden.size };
   }, [agents, workspaces, workspaceId, view.showClosed, view.hidden]);
+  const readSubAgents = useRpc(subAgentList);
+  const visibleIds = visible.map((a) => a.id).sort();
+  const anyRunning = visible.some((a) => a.status === "running");
+  const subQuery = useQuery({
+    queryKey: ["agent-board", "subagents", visibleIds],
+    queryFn: () => readSubAgents({ agentIds: visibleIds }),
+    enabled: visibleIds.length > 0,
+    placeholderData: keepPreviousData,
+    // A background subagent can run on after its agent stops, so a running subagent keeps the fast poll too.
+    refetchInterval: (query) => (anyRunning || query.state.data?.subagents.some((s) => s.status === "running") ? 2000 : 20_000),
+  });
+  /** Subagents of shown agents: running ones, those started since the agent's latest prompt, and older ones with the ended toggle. */
+  const subNodes = useMemo(() => {
+    const parents = new Map(visible.map((a) => [a.id, a]));
+    return (subQuery.data?.subagents ?? []).filter((sub) => {
+      const agent = parents.get(sub.parentAgentId);
+      return agent && (sub.status === "running" || sub.createdAt >= (agent.lastUserMessageAt ?? "") || view.showClosed);
+    });
+  }, [visible, subQuery.data, view.showClosed]);
+  /** Every node on the board: agents, then subagents under what started them and in their agent's workspace. */
+  const nodes = useMemo<BoardAgent[]>(
+    () => [
+      ...visible,
+      ...subNodes.map((sub) => ({
+        id: sub.id,
+        createdAt: sub.createdAt,
+        labels: { [PARENT_LABEL]: sub.parentSubagentId ?? sub.parentAgentId },
+        workspaceId: agents.get(sub.parentAgentId)?.workspaceId,
+      })),
+    ],
+    [visible, subNodes, agents],
+  );
+  const nodeById = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
   const focus = view.focus !== null && visible.some((a) => a.id === view.focus) ? view.focus : null;
-  const highlighted = useMemo(() => (focus === null ? null : lineage(visible, focus)), [visible, focus]);
+  const highlighted = useMemo(() => (focus === null ? null : lineage(nodes, focus)), [nodes, focus]);
   const [heights, setHeights] = useState<Record<string, number>>({});
-  const tree = useMemo(() => treeLayout(visible, heights, view.group), [visible, heights, view.group]);
+  const tree = useMemo(() => treeLayout(nodes, heights, view.group), [nodes, heights, view.group]);
 
   // Saved positions live locally while a save is pending, so a dropped card does not jump back.
   const [saved, setSaved] = useState<Record<string, Point>>({});
@@ -882,13 +1006,14 @@ export function AgentBoard({ theme, layout, workspaceId, navigation, tab }: Plug
     if (!dirty || settings.status !== "ready" || settings.saving) return;
     dirtyRef.current = false;
     setDirty(false);
-    // Positions of archived agents are dropped; agents of other projects keep theirs.
-    const positions = Object.fromEntries(Object.entries(saved).filter(([id]) => agents.has(id)));
+    // Positions of archived agents and of subagents gone from their parent's timeline are dropped; agents of other projects keep theirs.
+    const subIds = new Set(subQuery.data?.subagents.map((sub) => sub.id));
+    const positions = Object.fromEntries(Object.entries(saved).filter(([id]) => agents.has(id) || subIds.has(id)));
     // shortcut: a save that conflicts with another tab reloads and keeps this move only on screen until the next drop.
     void settings.save({ positions, summaries }, settings.revision).then((ok) => {
       if (!ok) void settings.reload();
     });
-  }, [dirty, settings, saved, summaries, agents]);
+  }, [dirty, settings, saved, summaries, agents, subQuery.data]);
   const markDirty = () => {
     dirtyRef.current = true;
     setDirty(true);
@@ -955,13 +1080,13 @@ export function AgentBoard({ theme, layout, workspaceId, navigation, tab }: Plug
     const base = basePosition(id);
     const raw = { x: Math.max(0, base.x + dx), y: Math.max(0, base.y + dy) };
     if (!shift) return raw;
-    const others = visible
+    const others = nodes
       .filter((a) => a.id !== id)
       .map((a) => ({ ...basePosition(a.id), height: heights[a.id] ?? DEFAULT_H }));
     return snapPoint(raw, heights[id] ?? DEFAULT_H, others);
   };
   const [groupDrag, setGroupDrag] = useState<{ workspaceId: string; dx: number; dy: number } | null>(null);
-  const members = (workspaceId: string) => visible.filter((a) => (a.workspaceId ?? "") === workspaceId);
+  const members = (workspaceId: string) => nodes.filter((a) => (a.workspaceId ?? "") === workspaceId);
   /** A workspace move, held back from going further past the left or top edge than the box needs. */
   const groupDelta = (workspaceId: string, dx: number, dy: number) => {
     const cards = members(workspaceId).map((a) => basePosition(a.id));
@@ -972,7 +1097,7 @@ export function AgentBoard({ theme, layout, workspaceId, navigation, tab }: Plug
   const positionOf = (id: string): Point => {
     if (drag?.id === id) return dragPosition(id, drag.dx, drag.dy, drag.shift);
     const base = basePosition(id);
-    return groupDrag && (agents.get(id)?.workspaceId ?? "") === groupDrag.workspaceId
+    return groupDrag && (nodeById.get(id)?.workspaceId ?? "") === groupDrag.workspaceId
       ? { x: base.x + groupDrag.dx, y: base.y + groupDrag.dy }
       : base;
   };
@@ -1024,29 +1149,32 @@ export function AgentBoard({ theme, layout, workspaceId, navigation, tab }: Plug
   };
   const resetLayout = () => {
     remember();
-    const ids = new Set(visible.map((a) => a.id));
+    const ids = new Set(nodes.map((a) => a.id));
     setSaved((current) => Object.fromEntries(Object.entries(current).filter(([id]) => !ids.has(id))));
     markDirty();
   };
 
-  const placed = visible.map((agent) => ({ agent, ...positionOf(agent.id) }));
+  const placed = nodes.map((node) => ({ node, ...positionOf(node.id) }));
   const width = Math.max(0, ...placed.map((p) => p.x + CARD_W + PAD));
-  const height = Math.max(0, ...placed.map((p) => p.y + (heights[p.agent.id] ?? DEFAULT_H) + PAD));
+  const height = Math.max(0, ...placed.map((p) => p.y + (heights[p.node.id] ?? DEFAULT_H) + PAD));
   const working = visible.filter((a) => a.status === "running").length;
   const waiting = visible.filter((a) => a.pendingPermissions.length > 0 || a.status === "error").length;
-  const hasCustom = visible.some((a) => saved[a.id]);
+  const hasCustom = nodes.some((a) => saved[a.id]);
   bounds.current = { width, height, portWidth: port.width, portHeight: port.height };
   const cam = clampCamera(camera);
   const boxes = view.group
-    ? groupBoxes(placed.map((p) => ({ x: p.x, y: p.y, workspaceId: p.agent.workspaceId ?? "", height: heights[p.agent.id] ?? DEFAULT_H })))
+    ? groupBoxes(placed.map((p) => ({ x: p.x, y: p.y, workspaceId: p.node.workspaceId ?? "", height: heights[p.node.id] ?? DEFAULT_H })))
     : [];
   const dimEdge = (edge: { from: string; to: string }) => highlighted !== null && !(highlighted.has(edge.from) && highlighted.has(edge.to));
   const pathOf = (edge: { from: string; to: string }) =>
     arrowPath(positionOf(edge.from), heights[edge.from] ?? DEFAULT_H, positionOf(edge.to), heights[edge.to] ?? DEFAULT_H, ARROW);
-  const openFrom = opened ? agents.get(opened.from) : undefined;
-  const openTo = opened ? agents.get(opened.to) : undefined;
+  const subById = new Map(subNodes.map((sub) => [sub.id, sub]));
+  const nodeOf = (id: string) => agents.get(id) ?? subById.get(id);
+  const openFrom = opened ? nodeOf(opened.from) : undefined;
+  const openTo = opened ? nodeOf(opened.to) : undefined;
   const toggleOpened = (edge: { from: string; to: string }) =>
     setOpened(opened?.from === edge.from && opened.to === edge.to ? null : edge);
+  const runningNode = (id: string) => nodeOf(id)?.status === "running";
   /** On the web the bubble is drawn over the viewport, unscaled, so zoom and the board's edges do not cut it; native draws it in the canvas. */
   const bubble = (space: { width: number; height: number }, place: (point: Point) => Point) =>
     opened && openFrom && openTo ? (
@@ -1081,19 +1209,31 @@ export function AgentBoard({ theme, layout, workspaceId, navigation, tab }: Plug
         >
           <ArrowLines
             path={pathOf(edge)}
-            active={agents.get(edge.to)?.status === "running"}
+            active={runningNode(edge.to)}
             colors={colors}
             flow={flow}
             onPress={() => toggleOpened(edge)}
           />
         </View>
       ))}
-      {placed.map(({ agent, x, y }) => (
+      {subNodes.map((sub) => (
+        <SubAgentCard
+          key={sub.id}
+          sub={sub}
+          x={positionOf(sub.id).x}
+          y={positionOf(sub.id).y}
+          dragging={drag?.id === sub.id}
+          dimmed={highlighted !== null && !highlighted.has(sub.id)}
+          colors={node}
+          handlers={handlers}
+        />
+      ))}
+      {visible.map((agent) => (
         <AgentCard
           key={agent.id}
           agent={agent}
-          x={x}
-          y={y}
+          x={positionOf(agent.id).x}
+          y={positionOf(agent.id).y}
           dragging={drag?.id === agent.id}
           summaries={summaries}
           icon={icons.get(agent.provider)}
@@ -1112,7 +1252,7 @@ export function AgentBoard({ theme, layout, workspaceId, navigation, tab }: Plug
         >
           <ArrowButton
             path={pathOf(edge)}
-            active={agents.get(edge.to)?.status === "running"}
+            active={runningNode(edge.to)}
             open={opened?.from === edge.from && opened.to === edge.to}
             colors={node}
             onPress={() => toggleOpened(edge)}

@@ -13,7 +13,8 @@ The switch in the header (**Haiku summaries on** or **Haiku summaries off**) tur
 - Claude Haiku writes the title and the **Now** line (**Last** when the agent is not running) from the agent's last 150 timeline items. The title (up to 40 characters) says what the session works on, and **Now** (up to 60 characters) says what the agent is actually doing. Until the first summary arrives, the card shows Paseo's title and the latest tool call, answer or thought. After that, a card keeps its last summary until the next one replaces it.
 - While an agent runs, its latest tool call shows live, in the **Tool** line once a summary fills **Now**, and in **Now** itself before that. The **Step** line shows the current step of the agent's todo list when it has one.
 - While an agent compacts its context, its status reads **Compacting** in purple and the **Compact** line reads **Compacting the conversation** until the compaction ends.
-- The header counts all visible agents, the working ones, and the ones that need attention because of a pending permission or an error.
+- A subagent that an agent starts inside its own session, such as one from Claude's Agent tool, gets a smaller card under that agent, joined by an arrow. The card shows **Subagent** with the subagent type, the task description, Paseo's line of model, effort and tokens, and **Working**, **Done**, **Error** or **Stopped**. Pressing it opens the agent that started it, and pressing its arrow lists the messages the subagent was given. Running subagents and the ones started since the agent's latest prompt show, and older ones show with **Ended agents (24h)** on.
+- The header counts all visible agents, the working ones, and the ones that need attention because of a pending permission or an error. Subagents are not counted.
 
 ## Arrows and instructions
 
@@ -45,11 +46,14 @@ Summaries run Claude Code in print mode (`claude -p`) with the Haiku model on th
 
 Opening an instruction box with summaries on also sends each listed instruction, up to its first 8,000 characters, for a summary. This happens once per instruction text and app language while the plugin runs, and a failed call is tried again the next time the box shows that instruction. At most two Claude calls run at once, and each one stops after 60 seconds. Summaries are kept in memory only and are lost when the plugin reloads.
 
+For subagent cards, the plugin's server connects to the daemon on its own machine, at the `daemon.listen` address in the Paseo home's `config.json`, and reads the subagents of the shown agents and the messages each subagent was given. It reads them every 2 seconds while an agent or a subagent runs, and every 20 seconds otherwise.
+
 To color workspace labels, the plugin reads Paseo's label file, `projects/workspace-labels.json` in the Paseo home folder (`~/.paseo` unless `PASEO_HOME` is set), on the daemon machine. It uses only each label's name and color. If the file cannot be read, labels are gray.
 
 ## Limits
 
 - Paseo does not record which profile started an agent, so a card shows the profile whose provider and fixed settings (model, permission mode, effort) all equal the agent's current ones. An agent set up by hand like a profile shows that profile, and one whose mode or effort changed afterwards shows none.
-- Closed and archived agents are hidden unless **Ended agents (24h)** is on. Provider subagents are not separate cards.
+- Closed and archived agents are hidden unless **Ended agents (24h)** is on.
+- Paseo's plugin API has no subagent list, so the plugin connects to the daemon on its own machine for subagent cards. A daemon that needs a password or listens on a socket shows no subagent cards.
 - New agents take their tree position and can overlap a card you moved.
 - Dragging is meant for desktop. On touch devices it can conflict with scrolling.

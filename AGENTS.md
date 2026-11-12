@@ -16,6 +16,7 @@ Paseo의 워크스페이스 패널 「에이전트 보드」(영어 이름 Agent
 | `shared/board.test.mjs` | `shared/` 테스트 (`npm test`) |
 | `shared/layout.ts` | 호스트 설정: 카드 위치 `positions`, Haiku 요약 켜기 `summaries` |
 | `shared/summary.ts`, `server/summary.ts` | Haiku 요약 RPC(카드 제목과 「지금」, 지시 요약). 앱 언어 `locale`을 입력으로 받고, 데몬에서 `claude -p --model haiku` 실행, 캐시, 동시 2개 |
+| `shared/subagents.ts`, `server/subagents.ts` | 하위 에이전트 목록과 하위 에이전트가 받은 지시 RPC. 플러그인 SDK에 없는 데몬 API(`listProviderSubagents`, `fetchProviderSubagentTimeline`)를 쓰려고 서버가 `config.json`의 `daemon.listen` 주소로 `DaemonClient`를 직접 연결 |
 | `shared/labels.ts`, `server/labels.ts` | 워크스페이스 레이블 색 RPC. 플러그인 SDK에 레이블 목록이 없어서 데몬의 `projects/workspace-labels.json`을 읽음 |
 | `shared/icons.ts` | provider 아이콘 SVG (simple-icons, CC0) |
 | `assets/` | 레지스트리 목록 이미지 `board-dark.webp`(썸네일), `instructions.webp`, `board-light.webp`. `paseo-plugin.json`의 `media`가 이 파일들을 가리킵니다 |
@@ -64,5 +65,6 @@ Paseo의 워크스페이스 패널 「에이전트 보드」(영어 이름 Agent
 - 다른 에이전트가 보낸 지시는 `user_message`가 아니라 `name: "agent_message"`인 `tool_call`로 기록되며, `agentMessage.event === "message"`이고 `agentMessage.sender.id`가 보낸 에이전트입니다. 지시를 읽을 때는 `shared/board.ts`의 `promptOf()`를 씁니다.
 - 강조는 `lineage()`(조상과 후손), 숨기기는 `subtrees()`(후손)로 계산합니다. 탭 상태의 `focus`와 `hidden`에는 에이전트 id가 들어갑니다.
 - 부모와 자식은 `paseo.parent-agent-id` 라벨로 찾습니다. 에이전트 정보에는 부모 필드가 없습니다.
+- Claude의 Agent 도구처럼 에이전트가 자기 세션 안에서 띄운 하위 에이전트는 Paseo 에이전트가 아닙니다. 부모 타임라인에는 `detail.type === "sub_agent"`인 `tool_call`로 기록되지만, 백그라운드로 띄우면 시작하자마자 `completed`가 되고 끝나도 기록이 생기지 않습니다. 그래서 보드는 타임라인 대신 `server/subagents.ts`의 데몬 목록(실제 상태, `subtitle`, 중첩된 `parentSubagentId`)을 2초(실행 중) 또는 20초 간격으로 읽고, 부모 라벨을 붙인 `BoardAgent`로 만들어 트리 배치, 강조, 묶기, 드래그에 넣습니다. 하위 에이전트로 가는 화살표의 지시 말풍선은 하위 에이전트 타임라인의 `user_message`를 보여 주며, Claude가 넣는 `<task-notification>` 메시지는 뺍니다. 실시간 타임라인에서는 같은 호출이 `sub_agent`와 `unknown` 상세로 번갈아 오기 때문에 `pushItem()`은 `sub_agent` 상세를 유지합니다.
 - Haiku 요약은 앱 언어로 씁니다. 클라이언트가 `useTranslation(messages).locale`을 보내면 서버가 태그를 정규화하고 `Intl.DisplayNames`로 영어 언어 이름을 만들어 프롬프트에 넣으며, 한국어, 일본어, 중국어는 글자 수 제한을 절반으로 줄입니다. 서버 캐시 키와 클라이언트 쿼리 키에는 locale이 들어갑니다.
 - Haiku에 보내는 `transcript()`는 화면 언어가 무엇이든 영어 라벨(`User:`, `Instruction:`, `Agent:`, `Tool:`)과 `ENGLISH_WORDS`를 씁니다. 카드에 보이는 도구 동사는 `describeActivity(items, words)`에 넘긴 번역 단어로 만듭니다.

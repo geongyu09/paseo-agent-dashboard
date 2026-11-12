@@ -214,7 +214,9 @@ export function pushItem(items: readonly AgentTimelineItem[], item: AgentTimelin
     for (let i = items.length - 1; i >= 0; i--) {
       const old = items[i];
       if (old.type === "tool_call" && old.callId === item.callId) {
-        return [...items.slice(0, i), item, ...items.slice(i + 1)];
+        // Claude streams a subagent's call as a plain tool call around its labelled card; keep the label, as Paseo's stored timeline does.
+        const merged = old.detail.type === "sub_agent" && item.detail.type !== "sub_agent" ? { ...item, detail: old.detail } : item;
+        return [...items.slice(0, i), merged, ...items.slice(i + 1)];
       }
     }
   }

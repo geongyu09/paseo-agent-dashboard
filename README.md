@@ -1,6 +1,6 @@
 # Agent board
 
-Agent board is a Paseo plugin that shows the agents of the current project as a live tree of cards. Each card shows the agent's status, provider, model, effort, permission mode and context use. Agents started by another agent sit beside their parent, joined by an arrow, and pressing the arrow shows the instructions the parent sent. Optional summaries from Claude Haiku give each card a short title and a line about what the agent is doing now. See [OVERVIEW.md](OVERVIEW.md) for the full description, including what data is sent where.
+Agent board is a Paseo plugin that shows the agents of the current project as a live tree of cards. Each card shows the agent's status, provider, model, effort, permission mode and context use. Agents started by another agent sit beside their parent, joined by an arrow, and pressing the arrow shows the instructions the parent sent. Subagents an agent starts inside its own session, such as those from Claude's Agent tool, get smaller cards under it. Optional summaries from Claude Haiku give each card a short title and a line about what the agent is doing now. See [OVERVIEW.md](OVERVIEW.md) for the full description, including what data is sent where.
 
 ![Agent board](assets/board-dark.webp)
 
