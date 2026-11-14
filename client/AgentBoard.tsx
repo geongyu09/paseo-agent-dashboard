@@ -1,13 +1,13 @@
 import { usePaseo, useRpc, useSettings, useTabState, useTranslation, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
-import { Icon } from "@getpaseo/plugin/client/ui";
+import { Icon, Markdown, Modal } from "@getpaseo/plugin/client/ui";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 // @getpaseo/client is not installed with the plugin; the host only resolves type imports from @getpaseo/protocol/*.
 import type { AgentSnapshotPayload as PaseoAgent, WorkspaceDescriptorPayload as PaseoWorkspace } from "@getpaseo/protocol/messages";
 import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 import { memo, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Animated, Easing, PanResponder, Platform, Pressable, ScrollView, Text, View, type GestureResponderEvent, type TextStyle } from "react-native";
-import { BOX_LABEL, BOX_PAD, CARD_W, DEFAULT_H, PAD, PARENT_LABEL, arrowPath, type ArrowDirection, type BoardAgent, type Box, colorIndex, describeActivity, groupBoxes, lineage, profileOf, promptOf, pushItem, subtrees, snapPoint, treeLayout, type Point, type ProfileLike } from "../shared/board";
-import { subAgentList, subAgentPrompts, type SubAgent } from "../shared/subagents";
+import { BOX_LABEL, BOX_PAD, CARD_W, DEFAULT_H, PAD, PARENT_LABEL, arrowPath, type ArrowDirection, type BoardAgent, type Box, colorIndex, describeActivity, groupBoxes, lineage, profileOf, promptOf, pushItem, subtrees, snapPoint, toolLabel, treeLayout, type Point, type ProfileLike } from "../shared/board";
+import { subAgentList, subAgentPrompts, subAgentTimeline, type SubAgent } from "../shared/subagents";
 import { CLAUDE_SVG, OPENAI_SVG } from "../shared/icons";
 import { boardLayout } from "../shared/layout";
 import { workspaceLabels } from "../shared/labels";
@@ -218,8 +218,8 @@ interface DragHandlers {
 /** React Native Web puts the mouse event's modifier keys on responder events; native touches have none. */
 const shiftHeld = (event: GestureResponderEvent) => Boolean((event.nativeEvent as { shiftKey?: boolean }).shiftKey);
 
-/** Dragging moves the card `id`; a tap opens the agent `opens`. */
-function useCardPan(id: string, opens: string, handlers: RefObject<DragHandlers>) {
+/** Dragging moves the card `id`; a tap presses it. */
+function useCardPan(id: string, handlers: RefObject<DragHandlers>) {
   return useMemo(
     () =>
       PanResponder.create({
@@ -228,10 +228,10 @@ function useCardPan(id: string, opens: string, handlers: RefObject<DragHandlers>
         onPanResponderTerminationRequest: () => false,
         onPanResponderMove: (e, g) => handlers.current.move(id, g.dx, g.dy, shiftHeld(e)),
         onPanResponderRelease: (e, g) =>
-          Math.abs(g.dx) + Math.abs(g.dy) < TAP_SLOP ? handlers.current.press(opens) : handlers.current.drop(id, g.dx, g.dy, shiftHeld(e)),
+          Math.abs(g.dx) + Math.abs(g.dy) < TAP_SLOP ? handlers.current.press(id) : handlers.current.drop(id, g.dx, g.dy, shiftHeld(e)),
         onPanResponderTerminate: () => handlers.current.cancel(),
       }),
-    [id, opens, handlers],
+    [id, handlers],
   );
 }
 
@@ -328,6 +328,25 @@ function ProfileChip({ profile }: { profile: Profile }) {
 /** The status is in the key, so a finished turn is summarized once more as it ends; the locale, so a new app language gets new summaries. */
 const summaryKey = (agent: PaseoAgent, locale: string) => ["agent-board", "summary", agent.id, agent.status, locale];
 
+/** Tool and state words for cards, in the reader's language. */
+function useActivityWords() {
+  const { t } = useTranslation(messages);
+  return useMemo(
+    () => ({
+      read: t("tool.read"),
+      edit: t("tool.edit"),
+      write: t("tool.write"),
+      search: t("tool.search"),
+      fetch: t("tool.fetch"),
+      subAgent: t("tool.subAgent"),
+      failed: t("tool.failed"),
+      thinking: t("tool.thinking"),
+      error: t("tool.error"),
+    }),
+    [t],
+  );
+}
+
 const isSub = (node: PaseoAgent | SubAgent): node is SubAgent => "parentAgentId" in node;
 const subTitle = (sub: SubAgent) => sub.description ?? sub.title;
 
@@ -356,20 +375,7 @@ const AgentCard = memo(function AgentCard(props: {
 }) {
   const { agent, colors, handlers } = props;
   const { t, locale } = useTranslation(messages);
-  const words = useMemo(
-    () => ({
-      read: t("tool.read"),
-      edit: t("tool.edit"),
-      write: t("tool.write"),
-      search: t("tool.search"),
-      fetch: t("tool.fetch"),
-      subAgent: t("tool.subAgent"),
-      failed: t("tool.failed"),
-      thinking: t("tool.thinking"),
-      error: t("tool.error"),
-    }),
-    [t],
-  );
+  const words = useActivityWords();
   const activity = describeActivity(useTimeline(agent.id), words);
   const running = agent.status === "running";
   const readSummary = useRpc(agentSummary);
@@ -385,7 +391,7 @@ const AgentCard = memo(function AgentCard(props: {
   const summed = props.summaries ? summary.data : undefined;
   const title = summed?.title ?? agent.title ?? t("card.untitled");
   const doing = activity.compacting ? t("card.compactingNow") : (summed?.doing ?? activity.latest);
-  const pan = useCardPan(agent.id, agent.id, handlers);
+  const pan = useCardPan(agent.id, handlers);
   const status = statusOf(agent, colors, activity.compacting);
   const statusLabel = t(`status.${status.key}`);
   const role = agent.labels.role;
@@ -477,7 +483,7 @@ const AgentCard = memo(function AgentCard(props: {
   );
 });
 
-/** A subagent's node: its type, its task, Paseo's model and token line, and its state. A tap opens the agent whose session runs it. */
+/** A subagent's node: its type, its task, Paseo's model and token line, and its state. A tap shows its conversation. */
 const SubAgentCard = memo(function SubAgentCard(props: {
   sub: SubAgent;
   x: number;
@@ -490,7 +496,7 @@ const SubAgentCard = memo(function SubAgentCard(props: {
   const { sub, colors, handlers } = props;
   const live = sub.status === "running";
   const { t } = useTranslation(messages);
-  const pan = useCardPan(sub.id, sub.parentAgentId, handlers);
+  const pan = useCardPan(sub.id, handlers);
   const status: { key: StatusKey; color: string } = live
     ? { key: "running", color: AMBER }
     : sub.status === "completed"
@@ -508,7 +514,7 @@ const SubAgentCard = memo(function SubAgentCard(props: {
       accessibilityRole="button"
       accessibilityLabel={`${kind}, ${title}, ${statusLabel}`}
       accessibilityHint={t("card.subHint")}
-      onAccessibilityTap={() => handlers.current.press(sub.parentAgentId)}
+      onAccessibilityTap={() => handlers.current.press(sub.id)}
       onLayout={(event) => handlers.current.measure(sub.id, event.nativeEvent.layout.height)}
       style={{
         position: "absolute",
@@ -550,6 +556,75 @@ const SubAgentCard = memo(function SubAgentCard(props: {
     </View>
   );
 });
+
+/**
+ * A subagent's conversation in a modal over the board, refreshed while it runs.
+ * Paseo hosts whose plugin `navigation` has no `openProviderSubagent` (it arrives with getpaseo/paseo#8795) cannot open their
+ * own subagent tab for a plugin, so the board draws the conversation itself there.
+ */
+function SubAgentSession(props: { sub: SubAgent; colors: Colors; onClose(): void; onOpenParent(): void }) {
+  const { sub, colors } = props;
+  const { t } = useTranslation(messages);
+  const words = useActivityWords();
+  const readTimeline = useRpc(subAgentTimeline);
+  const timeline = useQuery({
+    queryKey: ["agent-board", "session", sub.parentAgentId, sub.id],
+    queryFn: () => readTimeline({ agentId: sub.parentAgentId, subAgentId: sub.id }),
+    refetchInterval: sub.status === "running" ? 2000 : false,
+    retry: false,
+  });
+  // Stored rows split streamed answers into chunks and repeat a tool call per state; merge them as the live timeline does.
+  const items = (timeline.data?.items ?? []).reduce<AgentTimelineItem[]>((all, item) => pushItem(all, item), []);
+  const muted = { color: colors.foregroundMuted, fontSize: 12 };
+  return (
+    <Modal
+      title={subTitle(sub) ?? t("tool.subAgent")}
+      icon={<Icon name="Bot" size={16} color={colors.foreground} />}
+      open
+      onOpenChange={(open) => (open ? undefined : props.onClose())}
+    >
+      <Modal.Content>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+          {sub.subtitle ? <Text style={[muted, { flexShrink: 1 }]}>{sub.subtitle}</Text> : null}
+          <View style={{ marginLeft: "auto" }}>
+            <HeaderButton label={t("session.openParent")} onPress={props.onOpenParent} colors={colors} />
+          </View>
+        </View>
+        {timeline.isPending ? (
+          <Text style={muted}>{t("session.loading")}</Text>
+        ) : timeline.isError ? (
+          <Text style={muted}>{t("session.failed")}</Text>
+        ) : items.length === 0 ? (
+          <Text style={muted}>{t("session.empty")}</Text>
+        ) : (
+          items.map((item, index) => {
+            if (item.type === "user_message")
+              return (
+                <View key={index} style={{ padding: 10, borderRadius: 8, backgroundColor: colors.surface2 }}>
+                  <Markdown>{item.text}</Markdown>
+                </View>
+              );
+            if (item.type === "assistant_message") return <Markdown key={index}>{item.text}</Markdown>;
+            if (item.type === "tool_call")
+              return (
+                <Text key={index} numberOfLines={2} style={muted}>
+                  {toolLabel(item, words)}
+                  {item.status === "failed" ? ` (${words.failed})` : ""}
+                </Text>
+              );
+            if (item.type === "error")
+              return (
+                <Text key={index} style={{ color: colors.statusDanger, fontSize: 12 }}>
+                  {`${words.error}: ${item.message}`}
+                </Text>
+              );
+            return null;
+          })
+        )}
+      </Modal.Content>
+    </Modal>
+  );
+}
 
 /** An axis-aligned 2px line inside a thicker pressable strip. */
 function Segment({ x1, y1, x2, y2, color, onPress }: { x1: number; y1: number; x2: number; y2: number; color: string; onPress(): void }) {
@@ -1073,6 +1148,8 @@ export function AgentBoard({ theme, layout, workspaceId, navigation, tab }: Plug
     return () => loop.stop();
   }, [flow]);
   const [opened, setOpened] = useState<{ from: string; to: string } | null>(null);
+  /** The subagent whose conversation is shown. */
+  const [session, setSession] = useState<string | null>(null);
 
   const [drag, setDrag] = useState<{ id: string; dx: number; dy: number; shift: boolean } | null>(null);
   const basePosition = (id: string): Point => saved[id] ?? tree.positions[id] ?? { x: PAD, y: PAD };
@@ -1101,6 +1178,8 @@ export function AgentBoard({ theme, layout, workspaceId, navigation, tab }: Plug
       ? { x: base.x + groupDrag.dx, y: base.y + groupDrag.dy }
       : base;
   };
+  // shortcut: SDK 0.15 types lack openProviderSubagent (getpaseo/paseo#8795); hosts without it get the board's own view. Drop the cast once the SDK has it.
+  const subTabs = navigation as { openProviderSubagent?(input: { parentAgentId: string; subagentId: string }): void } | undefined;
   const handlers = useRef<DragHandlers & GroupHandlers & { undo(): void }>(null!);
   handlers.current = {
     // Gestures report screen pixels; the board is scaled by zoom.
@@ -1140,7 +1219,10 @@ export function AgentBoard({ theme, layout, workspaceId, navigation, tab }: Plug
       setHeights((current) => (Math.abs((current[id] ?? 0) - h) < 1 ? current : { ...current, [id]: h })),
     press: (id) => {
       setDrag(null);
-      navigation?.openAgent({ agentId: id });
+      const sub = subNodes.find((node) => node.id === id);
+      if (!sub) navigation?.openAgent({ agentId: id });
+      else if (subTabs?.openProviderSubagent) subTabs.openProviderSubagent({ parentAgentId: sub.parentAgentId, subagentId: sub.id });
+      else setSession(id);
     },
   };
   const toggleSummaries = () => {
@@ -1170,6 +1252,7 @@ export function AgentBoard({ theme, layout, workspaceId, navigation, tab }: Plug
     arrowPath(positionOf(edge.from), heights[edge.from] ?? DEFAULT_H, positionOf(edge.to), heights[edge.to] ?? DEFAULT_H, ARROW);
   const subById = new Map(subNodes.map((sub) => [sub.id, sub]));
   const nodeOf = (id: string) => agents.get(id) ?? subById.get(id);
+  const sessionSub = session ? subById.get(session) : undefined;
   const openFrom = opened ? nodeOf(opened.from) : undefined;
   const openTo = opened ? nodeOf(opened.to) : undefined;
   const toggleOpened = (edge: { from: string; to: string }) =>
@@ -1339,6 +1422,18 @@ export function AgentBoard({ theme, layout, workspaceId, navigation, tab }: Plug
           )}
         </View>
       )}
+      {sessionSub ? (
+        <SubAgentSession
+          key={sessionSub.id}
+          sub={sessionSub}
+          colors={colors}
+          onClose={() => setSession(null)}
+          onOpenParent={() => {
+            setSession(null);
+            navigation?.openAgent({ agentId: sessionSub.parentAgentId });
+          }}
+        />
+      ) : null}
     </View>
   );
 }

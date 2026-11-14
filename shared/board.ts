@@ -259,7 +259,7 @@ export const ENGLISH_WORDS: ActivityWords = {
   error: "Error",
 };
 
-function toolLabel(item: Extract<AgentTimelineItem, { type: "tool_call" }>, words: ActivityWords): string {
+export function toolLabel(item: Extract<AgentTimelineItem, { type: "tool_call" }>, words: ActivityWords): string {
   const detail = item.detail;
   switch (detail.type) {
     case "shell":

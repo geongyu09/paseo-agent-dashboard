@@ -1,4 +1,5 @@
 import { defineRpc } from "@getpaseo/plugin";
+import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 import { z } from "zod";
 
 const subAgent = z.object({
@@ -35,4 +36,11 @@ export const subAgentPrompts = defineRpc({
   name: "subagents.prompts",
   input: z.object({ agentId: z.string(), subAgentId: z.string() }),
   output: z.object({ prompts: z.array(z.object({ text: z.string(), at: z.string() })) }),
+});
+
+/** A subagent's whole conversation, oldest first, as its own timeline records it. */
+export const subAgentTimeline = defineRpc({
+  name: "subagents.timeline",
+  input: z.object({ agentId: z.string(), subAgentId: z.string() }),
+  output: z.object({ items: z.array(z.custom<AgentTimelineItem>()) }),
 });

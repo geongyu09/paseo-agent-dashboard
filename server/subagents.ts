@@ -3,7 +3,7 @@ import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { subAgentList, subAgentPrompts } from "../shared/subagents";
+import type { subAgentList, subAgentPrompts, subAgentTimeline } from "../shared/subagents";
 
 let client: Promise<DaemonClient> | null = null;
 let warned = false;
@@ -63,6 +63,11 @@ export async function listSubAgentPrompts({ agentId, subAgentId }: RpcInput<type
       row.item.type === "user_message" && !row.item.text.trimStart().startsWith("<task-notification>") ? [{ text: row.item.text, at: row.timestamp }] : [],
     ),
   };
+}
+
+export async function readSubAgentTimeline({ agentId, subAgentId }: RpcInput<typeof subAgentTimeline>): Promise<RpcOutput<typeof subAgentTimeline>> {
+  const page = await (await daemon()).fetchProviderSubagentTimeline(agentId, subAgentId, { direction: "tail", limit: 0 });
+  return { items: page.rows.map((row) => row.item) };
 }
 
 export async function stopSubAgents(): Promise<void> {
