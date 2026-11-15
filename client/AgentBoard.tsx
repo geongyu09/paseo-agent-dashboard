@@ -11,7 +11,8 @@ import { subAgentList, subAgentPrompts, subAgentTimeline, type SubAgent } from "
 import { CLAUDE_SVG, OPENAI_SVG } from "../shared/icons";
 import { boardLayout } from "../shared/layout";
 import { workspaceLabels } from "../shared/labels";
-import { agentSummary, instructionSummary } from "../shared/summary";
+import { agentSummary, instructionSummary, type SummaryModel } from "../shared/summary";
+import { pickModel, useReadyModels } from "./SummarySettings";
 import type { RpcOutput } from "@getpaseo/plugin";
 import { AMBER, BLUE, GRAY, GREEN, ORANGE, RED, PROVIDER_COLORS, PURPLE, effortColor, identityColor, modeColor, nodeColors, tint } from "./look";
 import { messages } from "./messages";
@@ -46,8 +47,10 @@ const viewSchema = z.object({
   hidden: z.array(z.string()),
   /** Group graphs by workspace; defaulted so tabs saved before it keep their other settings. */
   group: z.boolean().default(true),
+  /** Only the board's own workspace, not the other workspaces of its project. */
+  here: z.boolean().default(false),
 });
-const DEFAULT_VIEW: z.infer<typeof viewSchema> = { showClosed: false, focus: null, hidden: [], group: true };
+const DEFAULT_VIEW: z.infer<typeof viewSchema> = { showClosed: false, focus: null, hidden: [], group: true, here: false };
 const BOX_COLORS = [BLUE, GREEN, "#a371f7", ORANGE, "#db61a2", "#39c5cf"];
 
 const ended = (agent: PaseoAgent) => Boolean(agent.archivedAt) || agent.status === "closed";
@@ -325,8 +328,8 @@ function ProfileChip({ profile }: { profile: Profile }) {
   );
 }
 
-/** The status is in the key, so a finished turn is summarized once more as it ends; the locale, so a new app language gets new summaries. */
-const summaryKey = (agent: PaseoAgent, locale: string) => ["agent-board", "summary", agent.id, agent.status, locale];
+/** The status is in the key, so a finished turn is summarized once more as it ends; the locale and model, so a new app language or model gets new summaries. */
+const summaryKey = (agent: PaseoAgent, locale: string, model: SummaryModel | null) => ["agent-board", "summary", agent.id, agent.status, locale, model];
 
 /** Tool and state words for cards, in the reader's language. */
 function useActivityWords() {
@@ -350,9 +353,9 @@ function useActivityWords() {
 const isSub = (node: PaseoAgent | SubAgent): node is SubAgent => "parentAgentId" in node;
 const subTitle = (sub: SubAgent) => sub.description ?? sub.title;
 
-/** The card's Haiku title once it has one, else the stored title; a subagent's task. Reads the card's cached summary without fetching. */
-function useShownTitle(node: PaseoAgent | SubAgent, summaries: boolean, locale: string): string {
-  const summary = useQuery<RpcOutput<typeof agentSummary>>({ queryKey: isSub(node) ? ["agent-board", "none"] : summaryKey(node, locale), enabled: false });
+/** The card's summarized title once it has one, else the stored title; a subagent's task. Reads the card's cached summary without fetching. */
+function useShownTitle(node: PaseoAgent | SubAgent, summaries: SummaryModel | null, locale: string): string {
+  const summary = useQuery<RpcOutput<typeof agentSummary>>({ queryKey: isSub(node) ? ["agent-board", "none"] : summaryKey(node, locale, summaries), enabled: false });
   if (isSub(node)) return subTitle(node) ?? node.id;
   return (summaries ? summary.data?.title : null) ?? node.title ?? node.provider;
 }
@@ -362,7 +365,8 @@ const AgentCard = memo(function AgentCard(props: {
   x: number;
   y: number;
   dragging: boolean;
-  summaries: boolean;
+  /** The model writing summaries, or null while they are off. */
+  summaries: SummaryModel | null;
   icon?: string;
   /** The profile the agent was most likely started from. */
   profile: Profile | null;
@@ -380,11 +384,11 @@ const AgentCard = memo(function AgentCard(props: {
   const running = agent.status === "running";
   const readSummary = useRpc(agentSummary);
   const summary = useQuery({
-    queryKey: summaryKey(agent, locale),
-    queryFn: () => readSummary({ agentId: agent.id, running, locale }),
+    queryKey: summaryKey(agent, locale, props.summaries),
+    queryFn: () => readSummary({ agentId: agent.id, running, locale, model: props.summaries! }),
     refetchInterval: running ? SUMMARY_POLL : false,
     retry: false,
-    enabled: props.summaries,
+    enabled: props.summaries !== null,
     // The last summary stays until the next one arrives, so the title does not fall back to the raw prompt on a status change.
     placeholderData: keepPreviousData,
   });
@@ -753,15 +757,15 @@ const BUBBLE_MARGIN = 8;
 /** The bubble's scroller; the board's wheel handler leaves wheel input over it alone. */
 const BUBBLE_SCROLL_ID = "agent-board-bubble";
 
-/** One instruction: Haiku's goal and main points when summaries are on, and the original as sent, folded while a summary shows. */
-function Instruction(props: { index: number; text: string; at: string; summaries: boolean; colors: Colors }) {
+/** One instruction: the summarized goal and main points when summaries are on, and the original as sent, folded while a summary shows. */
+function Instruction(props: { index: number; text: string; at: string; summaries: SummaryModel | null; colors: Colors }) {
   const { index, text, colors } = props;
   const { t, locale } = useTranslation(messages);
   const readSummary = useRpc(instructionSummary);
   const summary = useQuery({
-    queryKey: ["agent-board", "instruction", locale, text],
-    queryFn: () => readSummary({ text, locale }),
-    enabled: props.summaries,
+    queryKey: ["agent-board", "instruction", locale, props.summaries, text],
+    queryFn: () => readSummary({ text, locale, model: props.summaries! }),
+    enabled: props.summaries !== null,
     retry: false,
     staleTime: Infinity,
   });
@@ -810,7 +814,7 @@ function InstructionBubble(props: {
   space: { width: number; height: number };
   from: PaseoAgent | SubAgent;
   to: PaseoAgent | SubAgent;
-  summaries: boolean;
+  summaries: SummaryModel | null;
   colors: Colors;
   onClose(): void;
 }) {
@@ -1020,13 +1024,13 @@ export function AgentBoard({ theme, layout, workspaceId, navigation, tab }: Plug
   const { visible, hiddenCount } = useMemo(() => {
     const projectId = workspaces.get(workspaceId)?.projectId ?? null;
     const inScope = (id: string | undefined) =>
-      id === workspaceId || (projectId !== null && id !== undefined && workspaces.get(id)?.projectId === projectId);
+      id === workspaceId || (!view.here && projectId !== null && id !== undefined && workspaces.get(id)?.projectId === projectId);
     const now = Date.now();
     const recent = (a: PaseoAgent) => now - Date.parse(a.archivedAt ?? a.updatedAt) < ENDED_WINDOW;
     const inProject = [...agents.values()].filter((a) => inScope(a.workspaceId) && (!ended(a) || (view.showClosed && recent(a))));
     const hidden = subtrees(inProject, view.hidden.filter((id) => inProject.some((a) => a.id === id)));
     return { visible: inProject.filter((a) => !hidden.has(a.id)), hiddenCount: hidden.size };
-  }, [agents, workspaces, workspaceId, view.showClosed, view.hidden]);
+  }, [agents, workspaces, workspaceId, view.showClosed, view.hidden, view.here]);
   const readSubAgents = useRpc(subAgentList);
   const visibleIds = visible.map((a) => a.id).sort();
   const anyRunning = visible.some((a) => a.status === "running");
@@ -1085,7 +1089,7 @@ export function AgentBoard({ theme, layout, workspaceId, navigation, tab }: Plug
     const subIds = new Set(subQuery.data?.subagents.map((sub) => sub.id));
     const positions = Object.fromEntries(Object.entries(saved).filter(([id]) => agents.has(id) || subIds.has(id)));
     // shortcut: a save that conflicts with another tab reloads and keeps this move only on screen until the next drop.
-    void settings.save({ positions, summaries }, settings.revision).then((ok) => {
+    void settings.save({ ...settings.values, positions, summaries }, settings.revision).then((ok) => {
       if (!ok) void settings.reload();
     });
   }, [dirty, settings, saved, summaries, agents, subQuery.data]);
@@ -1096,6 +1100,7 @@ export function AgentBoard({ theme, layout, workspaceId, navigation, tab }: Plug
 
   const paseo = usePaseo();
   const providers = useQuery({ queryKey: ["agent-board", "providers"], queryFn: () => paseo.providers.snapshot() });
+  const readyModels = useReadyModels();
   const icons = useMemo(
     () => new Map((providers.data?.entries ?? []).map((entry) => [entry.provider, entry.iconSvg ?? undefined])),
     [providers.data],
@@ -1229,6 +1234,9 @@ export function AgentBoard({ theme, layout, workspaceId, navigation, tab }: Plug
     setSummaries((value) => !value);
     markDirty();
   };
+  /** The model chosen in the plugin's settings page; summaries wait while no provider is ready. */
+  const summaryModel = pickModel(settings.status === "ready" ? settings.values.model : null, readyModels);
+  const shownSummaries = summaries ? summaryModel : null;
   const resetLayout = () => {
     remember();
     const ids = new Set(nodes.map((a) => a.id));
@@ -1266,7 +1274,7 @@ export function AgentBoard({ theme, layout, workspaceId, navigation, tab }: Plug
         space={space}
         from={openFrom}
         to={openTo}
-        summaries={summaries}
+        summaries={shownSummaries}
         colors={node}
         onClose={() => setOpened(null)}
       />
@@ -1318,7 +1326,7 @@ export function AgentBoard({ theme, layout, workspaceId, navigation, tab }: Plug
           x={positionOf(agent.id).x}
           y={positionOf(agent.id).y}
           dragging={drag?.id === agent.id}
-          summaries={summaries}
+          summaries={shownSummaries}
           icon={icons.get(agent.provider)}
           profile={profileOf({ provider: agent.provider, model: agent.model, modeId: agent.currentModeId, thinkingOptionId: agent.thinkingOptionId ?? null }, profiles)}
           colors={node}
@@ -1369,6 +1377,7 @@ export function AgentBoard({ theme, layout, workspaceId, navigation, tab }: Plug
         </Text>
         {/* Shrinkable and wrapping so narrow panels (phones) keep every toggle on screen instead of past the right edge. */}
         <View style={{ flexDirection: "row", flexWrap: "wrap", flexShrink: 1, alignItems: "center", gap: 8, marginLeft: "auto" }}>
+          <Toggle on={view.here} label={t("header.here")} onPress={() => setView({ ...view, here: !view.here })} colors={colors} />
           <Toggle on={view.group} label={t("header.group")} onPress={() => setView({ ...view, group: !view.group })} colors={colors} />
           <Toggle
             on={view.showClosed}

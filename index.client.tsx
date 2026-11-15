@@ -1,5 +1,6 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { AgentBoard } from "./client/AgentBoard";
+import { SummarySettings } from "./client/SummarySettings";
 import { keywords, messages } from "./client/messages";
 
 export default function contribute(client: PluginClientContext) {
@@ -10,6 +11,12 @@ export default function contribute(client: PluginClientContext) {
       icon: "Workflow",
       locations: ["workspace", "explorer"],
       Component: AgentBoard,
+    }),
+    client.addSettingsScreen({
+      id: "summaries",
+      title: messages.message("panel.title"),
+      icon: "Workflow",
+      Component: SummarySettings,
     }),
     client.addCommandCenterItem({
       id: "open-board",

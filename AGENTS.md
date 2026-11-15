@@ -9,13 +9,14 @@ Paseo의 워크스페이스 패널 「에이전트 보드」(영어 이름 Agent
 | `index.client.tsx` | 패널(`board`)과 ⌘K 명령 등록 |
 | `index.server.ts` | 호스트 설정 등록, 요약 RPC 처리, 종료 시 정리 |
 | `client/AgentBoard.tsx` | 보드 화면 전체: 카드, 화살표, 지시 말풍선, 워크스페이스 상자, 헤더, 드래그, 확대와 이동 |
+| `client/SummarySettings.tsx` | Paseo 설정의 플러그인 화면(요약 모델 선택), 준비된 요약 모델 목록 `useReadyModels()`와 모델 고르기 `pickModel()` |
 | `client/look.ts` | 태그 색(모델, 노력, 권한), `tint()`, 밝은 테마에서 카드에 쓰는 `GHOSTTY` 색과 `nodeColors()` |
 | `client/messages.ts` | 화면 문구 전체. en, ko, zh-CN 리소스와 ⌘K 검색어 `keywords`가 있고, `Strings<typeof en>` 타입이 세 언어의 키를 컴파일할 때 맞춥니다 |
 | `client/web.ts` | DOM이 필요한 코드(휠 확대와 이동, ⌘Z)만 두는 곳. 모든 export는 `Platform.OS === "web"`일 때만 동작 |
 | `shared/board.ts` | 순수 로직: 트리 배치, 워크스페이스 상자, 화살표 경로, Shift 정렬, 카드의 도구 동사(`ActivityWords`), 타임라인 요약 입력 |
 | `shared/board.test.mjs` | `shared/` 테스트 (`npm test`) |
-| `shared/layout.ts` | 호스트 설정: 카드 위치 `positions`, Haiku 요약 켜기 `summaries` |
-| `shared/summary.ts`, `server/summary.ts` | Haiku 요약 RPC(카드 제목과 「지금」, 지시 요약). 앱 언어 `locale`을 입력으로 받고, 데몬에서 `claude -p --model haiku` 실행, 캐시, 동시 2개 |
+| `shared/layout.ts` | 호스트 설정: 카드 위치 `positions`, 요약 켜기 `summaries`, 요약 모델 `model`(`null`이면 claude, codex 순서에서 준비된 첫 모델) |
+| `shared/summary.ts`, `server/summary.ts` | 요약 RPC(카드 제목과 「지금」, 지시 요약). 입력은 앱 언어 `locale`과 요약 모델 `model: "claude" \| "codex"`이며, 데몬에서 `askClaude`(`claude -p --model haiku`)와 `askCodex`(`codex exec --model gpt-6-luna`)가 공용 `run()`으로 CLI 실행, 모델별 캐시, 동시 2개 |
 | `shared/subagents.ts`, `server/subagents.ts` | 하위 에이전트 목록과 하위 에이전트가 받은 지시 RPC. 플러그인 SDK에 없는 데몬 API(`listProviderSubagents`, `fetchProviderSubagentTimeline`)를 쓰려고 서버가 `config.json`의 `daemon.listen` 주소로 `DaemonClient`를 직접 연결 |
 | `shared/labels.ts`, `server/labels.ts` | 워크스페이스 레이블 색 RPC. 플러그인 SDK에 레이블 목록이 없어서 데몬의 `projects/workspace-labels.json`을 읽음 |
 | `shared/icons.ts` | provider 아이콘 SVG (simple-icons, CC0) |
@@ -23,7 +24,7 @@ Paseo의 워크스페이스 패널 「에이전트 보드」(영어 이름 Agent
 | `README.md` | GitHub와 npm에 보이는 소개, 설치와 개발 명령 |
 | `OVERVIEW.md`, `OVERVIEW.zh-CN.md` | 레지스트리 목록 페이지(영어, 중국어 간체). 설치 명령은 넣지 않습니다 |
 
-탭마다 다른 보기 설정(종료된 에이전트, 강조, 숨긴 그래프, 워크스페이스별 묶기)은 `client/AgentBoard.tsx`의 `viewSchema`에 있고 `useTabState`로 저장됩니다.
+탭마다 다른 보기 설정(종료된 에이전트, 강조, 숨긴 그래프, 워크스페이스별 묶기, 현재 워크스페이스만 `here`)은 `client/AgentBoard.tsx`의 `viewSchema`에 있고 `useTabState`로 저장됩니다.
 
 ## 작업 순서
 
@@ -59,12 +60,14 @@ Paseo의 워크스페이스 패널 「에이전트 보드」(영어 이름 Agent
 - 지시 말풍선은 웹에서 캔버스 밖, 뷰포트 위에 그립니다. 위치는 `캔버스 좌표 × 배율 − 카메라 위치`로 바꿔 계산하고, 네이티브에서는 캔버스 안에 그립니다.
 - 웹에서는 ScrollView 대신 카메라(이동 거리와 배율) 방식입니다. 휠과 트랙패드 입력은 `listenForWheel`이 받습니다. 드래그 거리는 배율로 나눠서 씁니다.
 - Shift 드래그 여부는 React Native Web 응답자 이벤트의 `nativeEvent.shiftKey`로 알 수 있습니다.
-- Paseo 에이전트 제목은 첫 프롬프트 앞부분을 잘라 저장한 값이라서, 카드 제목과 「지금」은 Haiku 요약으로 만듭니다. 요약 프롬프트와 길이 제한은 `server/summary.ts`에 있습니다.
+- Paseo 에이전트 제목은 첫 프롬프트 앞부분을 잘라 저장한 값이라서, 카드 제목과 「지금」은 요약 모델이 쓴 요약으로 만듭니다. 요약 프롬프트와 길이 제한은 `server/summary.ts`에 있습니다.
 - 컴팩트 중인지는 타임라인의 `compaction` 항목으로 판단합니다. Claude는 시작할 때 `loading`, 끝날 때 `completed` 항목을 따로 남기기 때문에, 마지막 지시 이후 가장 최근 `compaction` 항목이 `loading`이면 컴팩트 중으로 봅니다.
 - 에이전트 정보에는 프로필 id가 없어서, `profileOf()`가 provider, 모델, 권한, 노력이 모두 같은 프로필을 찾습니다. 프로필 목록은 `paseo.config.get()`의 `agentProfiles`이고, 아이콘은 Lucide 이름(camelCase), 색은 Paseo identity 색 이름이며 `client/look.ts`의 `identityColor()`로 바꿉니다.
 - 다른 에이전트가 보낸 지시는 `user_message`가 아니라 `name: "agent_message"`인 `tool_call`로 기록되며, `agentMessage.event === "message"`이고 `agentMessage.sender.id`가 보낸 에이전트입니다. 지시를 읽을 때는 `shared/board.ts`의 `promptOf()`를 씁니다.
 - 강조는 `lineage()`(조상과 후손), 숨기기는 `subtrees()`(후손)로 계산합니다. 탭 상태의 `focus`와 `hidden`에는 에이전트 id가 들어갑니다.
 - 부모와 자식은 `paseo.parent-agent-id` 라벨로 찾습니다. 에이전트 정보에는 부모 필드가 없습니다.
 - Claude의 Agent 도구처럼 에이전트가 자기 세션 안에서 띄운 하위 에이전트는 Paseo 에이전트가 아닙니다. 부모 타임라인에는 `detail.type === "sub_agent"`인 `tool_call`로 기록되지만, 백그라운드로 띄우면 시작하자마자 `completed`가 되고 끝나도 기록이 생기지 않습니다. 그래서 보드는 타임라인 대신 `server/subagents.ts`의 데몬 목록(실제 상태, `subtitle`, 중첩된 `parentSubagentId`)을 2초(실행 중) 또는 20초 간격으로 읽고, 부모 라벨을 붙인 `BoardAgent`로 만들어 트리 배치, 강조, 묶기, 드래그에 넣습니다. 하위 에이전트로 가는 화살표의 지시 말풍선은 하위 에이전트 타임라인의 `user_message`를 보여 주며, Claude가 넣는 `<task-notification>` 메시지는 뺍니다. 실시간 타임라인에서는 같은 호출이 `sub_agent`와 `unknown` 상세로 번갈아 오기 때문에 `pushItem()`은 `sub_agent` 상세를 유지합니다.
-- Haiku 요약은 앱 언어로 씁니다. 클라이언트가 `useTranslation(messages).locale`을 보내면 서버가 태그를 정규화하고 `Intl.DisplayNames`로 영어 언어 이름을 만들어 프롬프트에 넣으며, 한국어, 일본어, 중국어는 글자 수 제한을 절반으로 줄입니다. 서버 캐시 키와 클라이언트 쿼리 키에는 locale이 들어갑니다.
-- Haiku에 보내는 `transcript()`는 화면 언어가 무엇이든 영어 라벨(`User:`, `Instruction:`, `Agent:`, `Tool:`)과 `ENGLISH_WORDS`를 씁니다. 카드에 보이는 도구 동사는 `describeActivity(items, words)`에 넘긴 번역 단어로 만듭니다.
+- 요약은 앱 언어로 씁니다. 클라이언트가 `useTranslation(messages).locale`을 보내면 서버가 태그를 정규화하고 `Intl.DisplayNames`로 영어 언어 이름을 만들어 프롬프트에 넣으며, 한국어, 일본어, 중국어는 글자 수 제한을 절반으로 줄입니다. 서버 캐시 키와 클라이언트 쿼리 키에는 locale과 model이 들어가므로, 모델을 바꾸면 요약을 새로 받습니다.
+- 요약 모델은 Paseo 설정의 플러그인 화면(`client/SummarySettings.tsx`, `addSettingsScreen`의 `summaries`)에서 고르며, 선택한 값은 호스트 설정 `layout`의 `model`에 저장됩니다. 데몬 호스트에서 Paseo provider가 켜져 있지 않거나 준비되지 않은 모델에는 「준비 안 됨」이 붙습니다. 보드는 `pickModel()`로 저장된 모델이 준비되어 있으면 그 모델을, 아니면 준비된 첫 모델을 쓰며, 보드가 카드 위치를 저장할 때는 `settings.values`를 펼쳐 `model`을 덮어쓰지 않습니다. 준비된 첫 모델은 claude, codex 순서로 고르며, 준비된 모델이 없으면 요약을 요청하지 않습니다.
+- Codex 요약은 임시 폴더에서 `codex exec --ephemeral --skip-git-repo-check --ignore-user-config --ignore-rules --sandbox read-only --model gpt-6-luna -c model_reasoning_effort=low --output-schema <file> --output-last-message <file> -`로 실행합니다. 사용자 Codex 설정을 읽지 않아서 MCP 서버와 프로필이 붙지 않으며, 세션도 저장되지 않습니다. 프롬프트는 표준 입력으로 보내며, 답은 `--output-last-message` 파일에서 읽습니다.
+- 요약 모델에 보내는 `transcript()`는 화면 언어가 무엇이든 영어 라벨(`User:`, `Instruction:`, `Agent:`, `Tool:`)과 `ENGLISH_WORDS`를 씁니다. 카드에 보이는 도구 동사는 `describeActivity(items, words)`에 넘긴 번역 단어로 만듭니다.

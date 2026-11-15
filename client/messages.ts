@@ -33,7 +33,7 @@ const en = {
     noActivity: "No activity",
   },
   field: { now: "Now", last: "Last", compact: "Compact", tool: "Tool", step: "Step" },
-  // The same words the summarizer reads, so English cards match what Haiku saw.
+  // The same words the summarizer reads, so English cards match what the summary model saw.
   tool: { ...ENGLISH_WORDS },
   instructions: {
     title: "Instructions sent",
@@ -61,14 +61,22 @@ const en = {
   header: {
     counts: "All {{total}} / Working {{working}} / Needs attention {{attention}}",
     hints: "{{zoom}}%  /  Scroll: pan  /  Ctrl+scroll, pinch: zoom  /  Shift+drag: align  /  ⌘Z: undo layout",
+    here: "This workspace only",
     group: "Group by workspace",
     ended: "Ended agents (24h)",
-    summariesOn: "Haiku summaries on",
-    summariesOff: "Haiku summaries off",
+    summariesOn: "Summaries on",
+    summariesOff: "Summaries off",
     clearFocus: "Clear highlight",
     showHidden_one: "Show {{count}} hidden agent",
     showHidden_other: "Show {{count}} hidden agents",
     reset: "Reset layout",
+  },
+  settings: {
+    summaries: "Summaries",
+    info: "Card titles, the Now line and instruction summaries are written by this model on the daemon machine. The switch in the board header turns summaries on or off.",
+    model: "Summary model",
+    modelHint: "Only models whose Paseo provider is enabled and ready can write summaries. If the chosen model is not ready, the first ready one writes them.",
+    notReady: "{{name}} (not ready)",
   },
   empty: {
     hidden: "No agents are visible. Press the button above to show the hidden ones.",
@@ -148,14 +156,22 @@ const ko: Strings<typeof en> = {
   header: {
     counts: "전체 {{total}} / 작업 중 {{working}} / 확인 필요 {{attention}}",
     hints: "{{zoom}}%  /  스크롤: 이동  /  Ctrl+스크롤, 핀치: 확대와 축소  /  Shift 드래그: 정렬  /  ⌘Z: 배치 되돌리기",
+    here: "현재 워크스페이스만",
     group: "워크스페이스별 묶기",
     ended: "종료된 에이전트 (24시간)",
-    summariesOn: "Haiku 요약 켜짐",
-    summariesOff: "Haiku 요약 꺼짐",
+    summariesOn: "요약 켜짐",
+    summariesOff: "요약 꺼짐",
     clearFocus: "강조 해제",
     showHidden_one: "숨긴 에이전트 {{count}}개 보기",
     showHidden_other: "숨긴 에이전트 {{count}}개 보기",
     reset: "배치 초기화",
+  },
+  settings: {
+    summaries: "요약",
+    info: "카드 제목과 「지금」 줄, 지시 요약을 데몬 컴퓨터에서 이 모델로 씁니다. 요약은 보드 헤더의 스위치로 켜거나 끕니다.",
+    model: "요약 모델",
+    modelHint: "Paseo provider가 켜져 있고 준비된 모델만 요약을 쓸 수 있습니다. 고른 모델이 준비되지 않았으면 준비된 첫 모델이 요약을 씁니다.",
+    notReady: "{{name}} (준비 안 됨)",
   },
   empty: {
     hidden: "보이는 에이전트가 없습니다. 숨긴 에이전트를 다시 보려면 위의 버튼을 누르세요.",
@@ -232,14 +248,22 @@ const zhCN: Strings<typeof en> = {
   header: {
     counts: "全部 {{total}} / 工作中 {{working}} / 需处理 {{attention}}",
     hints: "{{zoom}}%  /  滚动：平移  /  Ctrl+滚动、捏合：缩放  /  Shift+拖动：对齐  /  ⌘Z：撤销布局",
+    here: "仅当前工作区",
     group: "按工作区分组",
     ended: "已结束的智能体（24 小时）",
-    summariesOn: "Haiku 总结已开启",
-    summariesOff: "Haiku 总结已关闭",
+    summariesOn: "总结已开启",
+    summariesOff: "总结已关闭",
     clearFocus: "取消高亮",
     showHidden_one: "显示 {{count}} 个隐藏的智能体",
     showHidden_other: "显示 {{count}} 个隐藏的智能体",
     reset: "重置布局",
+  },
+  settings: {
+    summaries: "总结",
+    info: "卡片标题、「当前」行和指令总结由守护进程所在机器上的此模型生成。看板标题栏中的开关可开启或关闭总结。",
+    model: "总结模型",
+    modelHint: "只有 Paseo 中已启用且就绪的提供方的模型才能生成总结。所选模型未就绪时，由第一个就绪的模型生成。",
+    notReady: "{{name}}（未就绪）",
   },
   empty: {
     hidden: "没有可见的智能体。按上方按钮可重新显示隐藏的智能体。",

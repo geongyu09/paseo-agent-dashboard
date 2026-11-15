@@ -1,11 +1,12 @@
 import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { spawn, type ChildProcess } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { transcript } from "../shared/board";
 import { createHash } from "node:crypto";
-import type { agentSummary, instructionSummary } from "../shared/summary";
+import type { agentSummary, instructionSummary, SummaryModel } from "../shared/summary";
 
 type Summary = RpcOutput<typeof agentSummary>;
 type InstructionSummary = RpcOutput<typeof instructionSummary>;
@@ -93,47 +94,78 @@ function instructionPrompt(text: string, lang: Language): string {
   ].join("\n");
 }
 
-/** One Claude Haiku call through the local Claude Code CLI, without tools, settings, MCP servers or a saved session. */
-function askClaude(text: string, schema: string): Promise<Record<string, unknown>> {
+/** Runs one summary CLI from a temporary folder (keeping project CLAUDE.md and AGENTS.md files out), with the prompt on stdin. */
+function run(command: string, args: string[], text: string): Promise<{ code: number | null; out: string; err: string }> {
   return new Promise((resolve, reject) => {
     if (stopped) return reject(new Error("plugin stopping"));
-    const child = spawn(
-      "claude",
-      ["-p", "--model", "haiku", "--tools", "", "--no-session-persistence", "--strict-mcp-config", "--disable-slash-commands",
-        "--setting-sources", "", "--output-format", "json", "--json-schema", schema],
-      {
-        cwd: tmpdir(), // keep project CLAUDE.md files out of the call
-        env: { ...process.env, PATH: [join(homedir(), ".local/bin"), "/opt/homebrew/bin", "/usr/local/bin", process.env.PATH].filter(Boolean).join(":") },
-        timeout: 60_000,
-      },
-    );
+    const child = spawn(command, args, {
+      cwd: tmpdir(),
+      env: { ...process.env, PATH: [join(homedir(), ".local/bin"), "/opt/homebrew/bin", "/usr/local/bin", process.env.PATH].filter(Boolean).join(":") },
+      timeout: 60_000,
+    });
     children.add(child);
-    child.on("close", () => children.delete(child));
     let out = "";
     let err = "";
     child.stdout.on("data", (chunk) => (out += chunk));
     child.stderr.on("data", (chunk) => (err += chunk));
     child.on("error", reject);
     child.on("close", (code) => {
-      try {
-        const parsed = JSON.parse(out);
-        const value = parsed.structured_output;
-        if (code !== 0 || parsed.is_error || !value) throw new Error(String(parsed.result ?? `exit ${code}`));
-        resolve(value);
-      } catch (error) {
-        reject(new Error(`claude summary failed: ${error instanceof Error ? error.message : error} ${err.slice(0, 300)}`));
-      }
+      children.delete(child);
+      resolve({ code, out, err });
     });
     child.stdin.end(text);
   });
 }
 
+/** One Claude Haiku call through the local Claude Code CLI, without tools, settings, MCP servers or a saved session. */
+async function askClaude(text: string, schema: string): Promise<Record<string, unknown>> {
+  const { code, out, err } = await run(
+    "claude",
+    ["-p", "--model", "haiku", "--tools", "", "--no-session-persistence", "--strict-mcp-config", "--disable-slash-commands",
+      "--setting-sources", "", "--output-format", "json", "--json-schema", schema],
+    text,
+  );
+  try {
+    const parsed = JSON.parse(out);
+    const value = parsed.structured_output;
+    if (code !== 0 || parsed.is_error || !value) throw new Error(String(parsed.result ?? `exit ${code}`));
+    return value;
+  } catch (error) {
+    throw new Error(`claude summary failed: ${error instanceof Error ? error.message : error} ${err.slice(0, 300)}`);
+  }
+}
+
+/** One GPT-6-Luna call through the local Codex CLI: read-only sandbox, no saved session, without the user's config (MCP servers, profiles) or rules. */
+async function askCodex(text: string, schema: string): Promise<Record<string, unknown>> {
+  const dir = await mkdtemp(join(tmpdir(), "agent-board-"));
+  try {
+    const schemaFile = join(dir, "schema.json");
+    const answerFile = join(dir, "answer.json");
+    await writeFile(schemaFile, schema);
+    const { code, err } = await run(
+      "codex",
+      ["exec", "--ephemeral", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only",
+        "--model", "gpt-6-luna", "-c", "model_reasoning_effort=low", "--output-schema", schemaFile, "--output-last-message", answerFile, "-"],
+      text,
+    );
+    // Codex prints its errors (sign-in, usage limit) to stderr and still writes no answer file.
+    if (code !== 0) throw new Error(`exit ${code} ${err.trim().split("\n").slice(-2).join(" ").slice(0, 300)}`);
+    return JSON.parse(await readFile(answerFile, "utf8"));
+  } catch (error) {
+    throw new Error(`codex summary failed: ${error instanceof Error ? error.message : error}`);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+const ask = (model: SummaryModel, text: string, schema: string) => (model === "codex" ? askCodex : askClaude)(text, schema);
+
 export async function summarize(
-  { agentId, running, locale }: RpcInput<typeof agentSummary>,
+  { agentId, running, locale, model }: RpcInput<typeof agentSummary>,
   { paseo }: PluginHandlerContext,
 ): Promise<Summary> {
   const lang = language(locale);
-  const id = `${agentId}\0${lang.tag}`;
+  const id = `${agentId}\0${lang.tag}\0${model}`;
   const page = await paseo.agents.ref(agentId).timeline.refetch({ direction: "tail", limit: 150 });
   const key = String(page.entries.at(-1)?.seqEnd ?? 0);
   const hit = cache.get(id);
@@ -145,7 +177,7 @@ export async function summarize(
     let result: Summary = { title: null, doing: null };
     if (log) {
       try {
-        const value = await askClaude(prompt(page.agent?.title ?? null, running, log, lang), SCHEMA);
+        const value = await ask(model, prompt(page.agent?.title ?? null, running, log, lang), SCHEMA);
         result = { title: clean(value.title, 40), doing: clean(value.doing, 60) };
       } catch (error) {
         if (!stopped) console.error(`[agent-board] ${agentId}:`, error instanceof Error ? error.message : error);
@@ -161,14 +193,14 @@ export async function summarize(
 
 const instructions = new Map<string, Promise<InstructionSummary>>();
 
-/** Summarizes an instruction once per distinct text and language while the plugin runs; a failed call is retried on the next request. */
-export function summarizeInstruction({ text, locale }: RpcInput<typeof instructionSummary>): Promise<InstructionSummary> {
+/** Summarizes an instruction once per distinct text, language and model while the plugin runs; a failed call is retried on the next request. */
+export function summarizeInstruction({ text, locale, model }: RpcInput<typeof instructionSummary>): Promise<InstructionSummary> {
   const lang = language(locale);
-  const key = createHash("sha256").update(`${lang.tag}\0${text}`).digest("hex");
+  const key = createHash("sha256").update(`${model}\0${lang.tag}\0${text}`).digest("hex");
   const known = instructions.get(key);
   if (known) return known;
   const job = limited(async () => {
-    const value = await askClaude(instructionPrompt(text, lang), INSTRUCTION_SCHEMA);
+    const value = await ask(model, instructionPrompt(text, lang), INSTRUCTION_SCHEMA);
     const points = Array.isArray(value.points) ? value.points.map((point) => clean(point, 80)).filter((point): point is string => point !== null) : [];
     return { goal: clean(value.goal, 80), points: points.slice(0, 5) };
   });
@@ -181,7 +213,7 @@ export function summarizeInstruction({ text, locale }: RpcInput<typeof instructi
 }
 
 /**
- * Ends running Claude calls and waits for their requests to answer before the plugin stops;
+ * Ends running summary calls and waits for their requests to answer before the plugin stops;
  * an answer sent after the IPC channel closes crashes the plugin process.
  */
 export async function stopSummaries(): Promise<void> {
