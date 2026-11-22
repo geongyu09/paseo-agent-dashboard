@@ -1,4 +1,4 @@
-Agent board shows the agents of the current project, across its workspaces, as a live tree of cards, one card per Paseo agent. Agents started by another agent sit to the right of their parent, joined by an arrow, and pressing the arrow shows the instructions the parent sent. Open it as a workspace panel or with **Open agent board** in the Command Center.
+Agent board shows the agents of the current project, across its workspaces, as a live tree of cards, one card per Paseo agent. Agents started by another agent sit to the right of their parent, joined by an arrow, even when they run in another workspace or project, and pressing the arrow shows the instructions the parent sent. Open it as a workspace panel or with **Open agent board** in the Command Center.
 
 ## Setup
 
@@ -28,7 +28,7 @@ The model is chosen under **Summary model** on the plugin's page in Paseo settin
 ## Layout and navigation
 
 - The **Group by workspace** switch (on by default) stacks each workspace's graphs together and draws a dashed, lightly tinted box around them, with the workspace name and its labels in their Paseo colors on top. Boxes follow cards you drag, and dragging a box moves every card of its workspace together.
-- The **This workspace only** switch (off by default) shows only the agents of the workspace the board tab is in, instead of every workspace of the project. It is kept per tab.
+- The **This workspace only** switch (off by default) shows only the agents of the workspace the board tab is in and the agents they started, instead of every workspace of the project. It is kept per tab.
 - Drag a card to move it, and press it briefly to open the agent. Hold Shift while dragging to snap the card to another card's left or top edge, one tree gap beside, above or below a card, or else to a 20px grid. Positions are saved per agent on the host, so they stay after the tab is closed. **Reset layout** puts the moved cards back in the tree layout.
 - Scroll or swipe to move around the board in any direction (Shift + wheel moves sideways). Zoom from 25% to 150% around the pointer with Ctrl or ⌘ + scroll, or a trackpad pinch. In the mobile app the board scrolls instead and does not zoom. Position and zoom reset when the tab reopens.
 - ⌘Z or Ctrl+Z, with the pointer over the board, undoes the last card move, workspace move or layout reset, up to 50 steps.

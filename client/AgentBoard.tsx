@@ -1027,7 +1027,10 @@ export function AgentBoard({ theme, layout, workspaceId, navigation, tab }: Plug
       id === workspaceId || (!view.here && projectId !== null && id !== undefined && workspaces.get(id)?.projectId === projectId);
     const now = Date.now();
     const recent = (a: PaseoAgent) => now - Date.parse(a.archivedAt ?? a.updatedAt) < ENDED_WINDOW;
-    const inProject = [...agents.values()].filter((a) => inScope(a.workspaceId) && (!ended(a) || (view.showClosed && recent(a))));
+    // Agents started from an agent in scope join its graph even when they run in another workspace or project.
+    const all = [...agents.values()];
+    const linked = subtrees(all, all.filter((a) => inScope(a.workspaceId)).map((a) => a.id));
+    const inProject = all.filter((a) => linked.has(a.id) && (!ended(a) || (view.showClosed && recent(a))));
     const hidden = subtrees(inProject, view.hidden.filter((id) => inProject.some((a) => a.id === id)));
     return { visible: inProject.filter((a) => !hidden.has(a.id)), hiddenCount: hidden.size };
   }, [agents, workspaces, workspaceId, view.showClosed, view.hidden, view.here]);
