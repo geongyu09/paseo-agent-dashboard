@@ -9,14 +9,13 @@ Paseo의 워크스페이스 패널 「에이전트 보드」(영어 이름 Agent
 | `index.client.tsx` | 패널(`board`)과 ⌘K 명령 등록 |
 | `index.server.ts` | 호스트 설정 등록, 요약 RPC 처리, 종료 시 정리 |
 | `client/AgentBoard.tsx` | 보드 화면 전체: 카드, 화살표, 지시 말풍선, 워크스페이스 상자, 헤더, 드래그, 확대와 이동 |
-| `client/SummarySettings.tsx` | Paseo 설정의 플러그인 화면(요약 모델 선택), 준비된 요약 모델 목록 `useReadyModels()`와 모델 고르기 `pickModel()` |
 | `client/look.ts` | 태그 색(모델, 노력, 권한), `tint()`, 밝은 테마에서 카드에 쓰는 `GHOSTTY` 색과 `nodeColors()` |
 | `client/messages.ts` | 화면 문구 전체. en, ko, zh-CN 리소스와 ⌘K 검색어 `keywords`가 있고, `Strings<typeof en>` 타입이 세 언어의 키를 컴파일할 때 맞춥니다 |
 | `client/web.ts` | DOM이 필요한 코드(휠 확대와 이동, ⌘Z)만 두는 곳. 모든 export는 `Platform.OS === "web"`일 때만 동작 |
 | `shared/board.ts` | 순수 로직: 트리 배치, 워크스페이스 상자, 화살표 경로, Shift 정렬, 카드의 도구 동사(`ActivityWords`), 타임라인 요약 입력 |
 | `shared/board.test.mjs` | `shared/` 테스트 (`npm test`) |
-| `shared/layout.ts` | 호스트 설정: 카드 위치 `positions`, 요약 켜기 `summaries`, 요약 모델 `model`(`null`이면 claude, codex 순서에서 준비된 첫 모델) |
-| `shared/summary.ts`, `server/summary.ts` | 요약 RPC(카드 제목과 「지금」, 지시 요약). 입력은 앱 언어 `locale`과 요약 모델 `model: "claude" \| "codex"`이며, 데몬에서 `askClaude`(`claude -p --model haiku`)와 `askCodex`(`codex exec --model gpt-6-luna`)가 공용 `run()`으로 CLI 실행, 모델별 캐시, 동시 2개 |
+| `shared/layout.ts` | 호스트 설정: 카드 위치 `positions`, 요약 켜기 `summaries` |
+| `shared/summary.ts`, `server/summary.ts` | 요약 RPC(카드 제목과 「지금」, 지시 요약). 입력은 앱 언어 `locale`이며, 데몬에서 `askClaude`가 `run()`으로 `claude -p --model haiku` 실행, 캐시, 동시 2개 |
 | `shared/subagents.ts`, `server/subagents.ts` | 하위 에이전트 목록과 하위 에이전트가 받은 지시 RPC. 플러그인 SDK에 없는 데몬 API(`listProviderSubagents`, `fetchProviderSubagentTimeline`)를 쓰려고 서버가 `config.json`의 `daemon.listen` 주소로 `DaemonClient`를 직접 연결 |
 | `shared/labels.ts`, `server/labels.ts` | 워크스페이스 레이블 색 RPC. 플러그인 SDK에 레이블 목록이 없어서 데몬의 `projects/workspace-labels.json`을 읽음 |
 | `shared/icons.ts` | provider 아이콘 SVG (simple-icons, CC0) |
@@ -42,6 +41,7 @@ Paseo의 워크스페이스 패널 「에이전트 보드」(영어 이름 Agent
 2. `npm run typecheck`와 `npm test`를 실행해 둘 다 통과하는지 확인합니다.
 3. `npm publish`로 npm에 올립니다. scope가 붙은 패키지라서 처음 올릴 때만 `--access public`을 붙입니다.
 4. npm에 새 버전이 올라오면 Paseo 플러그인 레지스트리(getpaseo/plugins)가 버전을 올리는 PR을 자동으로 열기 때문에, 레지스트리에 다시 제출하지 않아도 됩니다.
+5. 레지스트리 봇(`paseo-bot`)이 그 PR을 리뷰해 승인해야 목록에 새 버전이 보입니다. 변경 요청을 받으면 고쳐서 새 버전을 배포하고, 그 PR에 새 버전 번호를 답글로 답니다.
 
 ## 지켜야 할 규칙
 
@@ -68,7 +68,6 @@ Paseo의 워크스페이스 패널 「에이전트 보드」(영어 이름 Agent
 - 부모와 자식은 `paseo.parent-agent-id` 라벨로 찾습니다. 에이전트 정보에는 부모 필드가 없습니다.
 - 보드에 넣는 에이전트는 범위 안 워크스페이스(현재 워크스페이스, 또는 같은 프로젝트의 워크스페이스)의 에이전트와 그 후손입니다. 다른 에이전트가 띄운 자식은 다른 워크스페이스나 프로젝트에서 실행되는 경우가 많아서, `subtrees()`로 후손을 워크스페이스와 관계없이 함께 넣습니다.
 - Claude의 Agent 도구처럼 에이전트가 자기 세션 안에서 띄운 하위 에이전트는 Paseo 에이전트가 아닙니다. 부모 타임라인에는 `detail.type === "sub_agent"`인 `tool_call`로 기록되지만, 백그라운드로 띄우면 시작하자마자 `completed`가 되고 끝나도 기록이 생기지 않습니다. 그래서 보드는 타임라인 대신 `server/subagents.ts`의 데몬 목록(실제 상태, `subtitle`, 중첩된 `parentSubagentId`)을 2초(실행 중) 또는 20초 간격으로 읽고, 부모 라벨을 붙인 `BoardAgent`로 만들어 트리 배치, 강조, 묶기, 드래그에 넣습니다. 하위 에이전트로 가는 화살표의 지시 말풍선은 하위 에이전트 타임라인의 `user_message`를 보여 주며, Claude가 넣는 `<task-notification>` 메시지는 뺍니다. 실시간 타임라인에서는 같은 호출이 `sub_agent`와 `unknown` 상세로 번갈아 오기 때문에 `pushItem()`은 `sub_agent` 상세를 유지합니다.
-- 요약은 앱 언어로 씁니다. 클라이언트가 `useTranslation(messages).locale`을 보내면 서버가 태그를 정규화하고 `Intl.DisplayNames`로 영어 언어 이름을 만들어 프롬프트에 넣으며, 한국어, 일본어, 중국어는 글자 수 제한을 절반으로 줄입니다. 서버 캐시 키와 클라이언트 쿼리 키에는 locale과 model이 들어가므로, 모델을 바꾸면 요약을 새로 받습니다.
-- 요약 모델은 Paseo 설정의 플러그인 화면(`client/SummarySettings.tsx`, `addSettingsScreen`의 `summaries`)에서 고르며, 선택한 값은 호스트 설정 `layout`의 `model`에 저장됩니다. 데몬 호스트에서 Paseo provider가 켜져 있지 않거나 준비되지 않은 모델에는 「준비 안 됨」이 붙습니다. 보드는 `pickModel()`로 저장된 모델이 준비되어 있으면 그 모델을, 아니면 준비된 첫 모델을 쓰며, 보드가 카드 위치를 저장할 때는 `settings.values`를 펼쳐 `model`을 덮어쓰지 않습니다. 준비된 첫 모델은 claude, codex 순서로 고르며, 준비된 모델이 없으면 요약을 요청하지 않습니다.
-- Codex 요약은 임시 폴더에서 `codex exec --ephemeral --skip-git-repo-check --ignore-user-config --ignore-rules --sandbox read-only --model gpt-6-luna -c model_reasoning_effort=low --output-schema <file> --output-last-message <file> -`로 실행합니다. 사용자 Codex 설정을 읽지 않아서 MCP 서버와 프로필이 붙지 않으며, 세션도 저장되지 않습니다. 프롬프트는 표준 입력으로 보내며, 답은 `--output-last-message` 파일에서 읽습니다.
+- 요약은 앱 언어로 씁니다. 클라이언트가 `useTranslation(messages).locale`을 보내면 서버가 태그를 정규화하고 `Intl.DisplayNames`로 영어 언어 이름을 만들어 프롬프트에 넣으며, 한국어, 일본어, 중국어는 글자 수 제한을 절반으로 줄입니다. 서버 캐시 키와 클라이언트 쿼리 키에는 locale이 들어갑니다.
+- 요약은 Claude Haiku로만 씁니다. 1.1.3과 1.1.4에 넣었던 Codex 요약은 레지스트리 리뷰(getpaseo/plugins #2798, #3037)에서 거절되어 1.1.5에서 뺐습니다. `codex exec`는 기능 플래그(`--disable`)를 모두 꺼도 `functions.exec`, `collaboration.spawn_agent` 같은 도구가 남아서, 타임라인에 든 지시가 요약 모델에게 파일을 읽게 만들 수 있습니다. 도구를 완전히 끈 호출을 만들 수 없는 CLI는 요약 모델로 넣지 않습니다.
 - 요약 모델에 보내는 `transcript()`는 화면 언어가 무엇이든 영어 라벨(`User:`, `Instruction:`, `Agent:`, `Tool:`)과 `ENGLISH_WORDS`를 씁니다. 카드에 보이는 도구 동사는 `describeActivity(items, words)`에 넘긴 번역 단어로 만듭니다.

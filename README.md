@@ -1,6 +1,6 @@
 # Agent board
 
-Agent board is a Paseo plugin that shows the agents of the current project as a live tree of cards. Each card shows the agent's status, provider, model, effort, permission mode and context use. Agents started by another agent sit beside their parent, joined by an arrow, even when they run in another workspace or project, and pressing the arrow shows the instructions the parent sent. Subagents an agent starts inside its own session, such as those from Claude's Agent tool, get smaller cards under it, and pressing one shows its conversation. Optional summaries from Claude Haiku or Codex GPT-6-Luna give each card a short title and a line about what the agent is doing now. See [OVERVIEW.md](OVERVIEW.md) for the full description, including what data is sent where.
+Agent board is a Paseo plugin that shows the agents of the current project as a live tree of cards. Each card shows the agent's status, provider, model, effort, permission mode and context use. Agents started by another agent sit beside their parent, joined by an arrow, even when they run in another workspace or project, and pressing the arrow shows the instructions the parent sent. Subagents an agent starts inside its own session, such as those from Claude's Agent tool, get smaller cards under it, and pressing one shows its conversation. Optional summaries from Claude Haiku give each card a short title and a line about what the agent is doing now. See [OVERVIEW.md](OVERVIEW.md) for the full description, including what data is sent where.
 
 ![Agent board](assets/board-dark.webp)
 
@@ -21,7 +21,7 @@ paseo plugin add npm:@geongyu09/paseo-agent-dashboard
 ## Requirements
 
 - Paseo 0.15.3 or later.
-- For summaries, the Claude Code CLI or the Codex CLI installed and signed in on the daemon machine. Summaries can be turned off with the switch in the board header, and the board works without them.
+- For summaries, the Claude Code CLI installed and signed in on the daemon machine. Summaries can be turned off with the switch in the board header, and the board works without them.
 
 ## Development
 

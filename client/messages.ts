@@ -71,13 +71,6 @@ const en = {
     showHidden_other: "Show {{count}} hidden agents",
     reset: "Reset layout",
   },
-  settings: {
-    summaries: "Summaries",
-    info: "Card titles, the Now line and instruction summaries are written by this model on the daemon machine. The switch in the board header turns summaries on or off.",
-    model: "Summary model",
-    modelHint: "Only models whose Paseo provider is enabled and ready can write summaries. If the chosen model is not ready, the first ready one writes them.",
-    notReady: "{{name}} (not ready)",
-  },
   empty: {
     hidden: "No agents are visible. Press the button above to show the hidden ones.",
     none: "No open agents in this project.",
@@ -166,13 +159,6 @@ const ko: Strings<typeof en> = {
     showHidden_other: "숨긴 에이전트 {{count}}개 보기",
     reset: "배치 초기화",
   },
-  settings: {
-    summaries: "요약",
-    info: "카드 제목과 「지금」 줄, 지시 요약을 데몬 컴퓨터에서 이 모델로 씁니다. 요약은 보드 헤더의 스위치로 켜거나 끕니다.",
-    model: "요약 모델",
-    modelHint: "Paseo provider가 켜져 있고 준비된 모델만 요약을 쓸 수 있습니다. 고른 모델이 준비되지 않았으면 준비된 첫 모델이 요약을 씁니다.",
-    notReady: "{{name}} (준비 안 됨)",
-  },
   empty: {
     hidden: "보이는 에이전트가 없습니다. 숨긴 에이전트를 다시 보려면 위의 버튼을 누르세요.",
     none: "이 프로젝트에서 열려 있는 에이전트가 없습니다.",
@@ -257,13 +243,6 @@ const zhCN: Strings<typeof en> = {
     showHidden_one: "显示 {{count}} 个隐藏的智能体",
     showHidden_other: "显示 {{count}} 个隐藏的智能体",
     reset: "重置布局",
-  },
-  settings: {
-    summaries: "总结",
-    info: "卡片标题、「当前」行和指令总结由守护进程所在机器上的此模型生成。看板标题栏中的开关可开启或关闭总结。",
-    model: "总结模型",
-    modelHint: "只有 Paseo 中已启用且就绪的提供方的模型才能生成总结。所选模型未就绪时，由第一个就绪的模型生成。",
-    notReady: "{{name}}（未就绪）",
   },
   empty: {
     hidden: "没有可见的智能体。按上方按钮可重新显示隐藏的智能体。",

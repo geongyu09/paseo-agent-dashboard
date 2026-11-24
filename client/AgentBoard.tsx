@@ -11,8 +11,7 @@ import { subAgentList, subAgentPrompts, subAgentTimeline, type SubAgent } from "
 import { CLAUDE_SVG, OPENAI_SVG } from "../shared/icons";
 import { boardLayout } from "../shared/layout";
 import { workspaceLabels } from "../shared/labels";
-import { agentSummary, instructionSummary, type SummaryModel } from "../shared/summary";
-import { pickModel, useReadyModels } from "./SummarySettings";
+import { agentSummary, instructionSummary } from "../shared/summary";
 import type { RpcOutput } from "@getpaseo/plugin";
 import { AMBER, BLUE, GRAY, GREEN, ORANGE, RED, PROVIDER_COLORS, PURPLE, effortColor, identityColor, modeColor, nodeColors, tint } from "./look";
 import { messages } from "./messages";
@@ -328,8 +327,8 @@ function ProfileChip({ profile }: { profile: Profile }) {
   );
 }
 
-/** The status is in the key, so a finished turn is summarized once more as it ends; the locale and model, so a new app language or model gets new summaries. */
-const summaryKey = (agent: PaseoAgent, locale: string, model: SummaryModel | null) => ["agent-board", "summary", agent.id, agent.status, locale, model];
+/** The status is in the key, so a finished turn is summarized once more as it ends; the locale, so a new app language gets new summaries. */
+const summaryKey = (agent: PaseoAgent, locale: string) => ["agent-board", "summary", agent.id, agent.status, locale];
 
 /** Tool and state words for cards, in the reader's language. */
 function useActivityWords() {
@@ -354,8 +353,8 @@ const isSub = (node: PaseoAgent | SubAgent): node is SubAgent => "parentAgentId"
 const subTitle = (sub: SubAgent) => sub.description ?? sub.title;
 
 /** The card's summarized title once it has one, else the stored title; a subagent's task. Reads the card's cached summary without fetching. */
-function useShownTitle(node: PaseoAgent | SubAgent, summaries: SummaryModel | null, locale: string): string {
-  const summary = useQuery<RpcOutput<typeof agentSummary>>({ queryKey: isSub(node) ? ["agent-board", "none"] : summaryKey(node, locale, summaries), enabled: false });
+function useShownTitle(node: PaseoAgent | SubAgent, summaries: boolean, locale: string): string {
+  const summary = useQuery<RpcOutput<typeof agentSummary>>({ queryKey: isSub(node) ? ["agent-board", "none"] : summaryKey(node, locale), enabled: false });
   if (isSub(node)) return subTitle(node) ?? node.id;
   return (summaries ? summary.data?.title : null) ?? node.title ?? node.provider;
 }
@@ -365,8 +364,7 @@ const AgentCard = memo(function AgentCard(props: {
   x: number;
   y: number;
   dragging: boolean;
-  /** The model writing summaries, or null while they are off. */
-  summaries: SummaryModel | null;
+  summaries: boolean;
   icon?: string;
   /** The profile the agent was most likely started from. */
   profile: Profile | null;
@@ -384,11 +382,11 @@ const AgentCard = memo(function AgentCard(props: {
   const running = agent.status === "running";
   const readSummary = useRpc(agentSummary);
   const summary = useQuery({
-    queryKey: summaryKey(agent, locale, props.summaries),
-    queryFn: () => readSummary({ agentId: agent.id, running, locale, model: props.summaries! }),
+    queryKey: summaryKey(agent, locale),
+    queryFn: () => readSummary({ agentId: agent.id, running, locale }),
     refetchInterval: running ? SUMMARY_POLL : false,
     retry: false,
-    enabled: props.summaries !== null,
+    enabled: props.summaries,
     // The last summary stays until the next one arrives, so the title does not fall back to the raw prompt on a status change.
     placeholderData: keepPreviousData,
   });
@@ -758,14 +756,14 @@ const BUBBLE_MARGIN = 8;
 const BUBBLE_SCROLL_ID = "agent-board-bubble";
 
 /** One instruction: the summarized goal and main points when summaries are on, and the original as sent, folded while a summary shows. */
-function Instruction(props: { index: number; text: string; at: string; summaries: SummaryModel | null; colors: Colors }) {
+function Instruction(props: { index: number; text: string; at: string; summaries: boolean; colors: Colors }) {
   const { index, text, colors } = props;
   const { t, locale } = useTranslation(messages);
   const readSummary = useRpc(instructionSummary);
   const summary = useQuery({
-    queryKey: ["agent-board", "instruction", locale, props.summaries, text],
-    queryFn: () => readSummary({ text, locale, model: props.summaries! }),
-    enabled: props.summaries !== null,
+    queryKey: ["agent-board", "instruction", locale, text],
+    queryFn: () => readSummary({ text, locale }),
+    enabled: props.summaries,
     retry: false,
     staleTime: Infinity,
   });
@@ -814,7 +812,7 @@ function InstructionBubble(props: {
   space: { width: number; height: number };
   from: PaseoAgent | SubAgent;
   to: PaseoAgent | SubAgent;
-  summaries: SummaryModel | null;
+  summaries: boolean;
   colors: Colors;
   onClose(): void;
 }) {
@@ -1103,7 +1101,6 @@ export function AgentBoard({ theme, layout, workspaceId, navigation, tab }: Plug
 
   const paseo = usePaseo();
   const providers = useQuery({ queryKey: ["agent-board", "providers"], queryFn: () => paseo.providers.snapshot() });
-  const readyModels = useReadyModels();
   const icons = useMemo(
     () => new Map((providers.data?.entries ?? []).map((entry) => [entry.provider, entry.iconSvg ?? undefined])),
     [providers.data],
@@ -1237,9 +1234,6 @@ export function AgentBoard({ theme, layout, workspaceId, navigation, tab }: Plug
     setSummaries((value) => !value);
     markDirty();
   };
-  /** The model chosen in the plugin's settings page; summaries wait while no provider is ready. */
-  const summaryModel = pickModel(settings.status === "ready" ? settings.values.model : null, readyModels);
-  const shownSummaries = summaries ? summaryModel : null;
   const resetLayout = () => {
     remember();
     const ids = new Set(nodes.map((a) => a.id));
@@ -1277,7 +1271,7 @@ export function AgentBoard({ theme, layout, workspaceId, navigation, tab }: Plug
         space={space}
         from={openFrom}
         to={openTo}
-        summaries={shownSummaries}
+        summaries={summaries}
         colors={node}
         onClose={() => setOpened(null)}
       />
@@ -1329,7 +1323,7 @@ export function AgentBoard({ theme, layout, workspaceId, navigation, tab }: Plug
           x={positionOf(agent.id).x}
           y={positionOf(agent.id).y}
           dragging={drag?.id === agent.id}
-          summaries={shownSummaries}
+          summaries={summaries}
           icon={icons.get(agent.provider)}
           profile={profileOf({ provider: agent.provider, model: agent.model, modeId: agent.currentModeId, thinkingOptionId: agent.thinkingOptionId ?? null }, profiles)}
           colors={node}
